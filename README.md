@@ -25,8 +25,12 @@ CivitAI.comからAIモデル（Checkpoint、LoRA）のURLを効率的に収集�
 
 ```bash
 # リポジトリをクローン
-git clone <repository-url>
-cd civitiai
+git clone https://github.com/calico923/civitiai-tools.git
+cd civitiai-tools
+
+# Python仮想環境を作成（推奨）
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # 依存関係をインストール
 pip install -r requirements.txt
@@ -193,7 +197,11 @@ python demo_url_collector.py
 ## プロジェクト構造
 
 ```
-civitiai/
+civitiai-tools/
+├── .github/                 # GitHub設定
+│   ├── workflows/          # GitHub Actions
+│   └── linters/            # リンター設定
+│       └── .ruff.toml      # Ruffリンター設定
 ├── src/                     # ソースコード
 │   ├── core/               # コア機能
 │   │   └── url_collector.py   # URL収集とエクスポート
@@ -222,9 +230,13 @@ civitiai/
 │   ├── test_url_collector.py
 │   └── fixtures/           # テストデータ
 ├── docs/                    # ドキュメント
-├── outputs/                 # 生成ファイル
+├── outputs/                 # 生成ファイル（.gitignoreで除外）
 │   └── urls/               # URLエクスポート（各ベースモデル別）
-├── pytest.ini             # テスト設定
+├── .coderabbit.yaml        # CodeRabbit設定
+├── .gitignore              # Git除外設定
+├── .env.example            # 環境変数テンプレート
+├── CLAUDE.md               # Claude Code用指示
+├── pytest.ini              # テスト設定
 ├── requirements.txt        # Python依存関係
 └── README.md               # このファイル
 ```
@@ -256,10 +268,21 @@ DOWNLOAD_TIMEOUT=300
 2. **Green**: テストをパスする最小限のコードを実装
 3. **Refactor**: クリーンアップと最適化
 
+### 開発環境のセットアップ
+
+```bash
+# 開発用依存関係をインストール
+pip install -r requirements-dev.txt  # 作成予定
+
+# pre-commitフックをセットアップ（オプション）
+pre-commit install
+```
+
 ### 開発時のテスト実行
 
 ```bash
 # ウォッチモード（pytest-watchをインストール）
+pip install pytest-watch
 ptw
 
 # 特定機能のテスト
@@ -268,6 +291,36 @@ python -m pytest tests/test_url_collector.py::TestURLCollection -v
 # デバッグモード
 python -m pytest -s -vv
 ```
+
+### コード品質ツール
+
+```bash
+# Ruffでリント
+ruff check .
+
+# Ruffで自動修正
+ruff check --fix .
+
+# 型チェック（mypyを使用する場合）
+mypy src/
+```
+
+## 🤖 CI/CD & 自動レビュー
+
+### GitHub Actions
+- **Claude Code Review**: PRに対する自動コードレビュー
+- **CodeRabbit Integration**: AIによる詳細なコードレビュー
+
+### CodeRabbit設定
+このプロジェクトはCodeRabbitによる自動コードレビューが有効です：
+- Pythonコードの品質チェック
+- セキュリティ脆弱性の検出
+- PEP 8準拠の確認
+- 依存関係の脆弱性スキャン
+
+設定ファイル：
+- `.coderabbit.yaml`: メイン設定
+- `.github/linters/.ruff.toml`: Pythonリンター設定
 
 ## エラーハンドリング
 
