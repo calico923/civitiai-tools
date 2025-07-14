@@ -1,0 +1,67 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+# CodeRabbit Configuration for Python Project
+# Documentation: https://docs.coderabbit.ai/guides/configure-coderabbit
+
+reviews:
+  # Enable auto reviews for all PRs
+  auto_review:
+    enabled: true
+    
+  # Review settings
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  
+  # Path filters - focus on Python code
+  path_filters:
+    - "!**/*.pyc"
+    - "!**/__pycache__/**"
+    - "!**/node_modules/**"
+    - "!**/.venv/**"
+    - "!**/venv/**"
+    - "!**/env/**"
+    - "!**/.env"
+    - "!**/outputs/**"
+    - "!**/*.log"
+    
+  # Review tools configuration
+  tools:
+    # Python-specific static analysis
+    ruff:
+      enabled: true
+    
+    # Security scanning
+    semgrep:
+      enabled: true
+      
+    # Dependency scanning  
+    osv-scanner:
+      enabled: true
+
+# Chat configuration
+chat:
+  auto_reply: true
+
+# Language-specific settings
+language_model:
+  model: "gpt-4"  # or "claude-3-opus" for more detailed reviews
+
+# Python-specific review guidelines
+knowledge_base:
+  - "Review Python code following PEP 8 style guide"
+  - "Check for proper type hints in function signatures"
+  - "Ensure proper error handling with try-except blocks"
+  - "Verify docstrings follow Google or NumPy style"
+  - "Check for security issues like SQL injection, path traversal"
+  - "Validate proper use of async/await patterns"
+  - "Ensure pytest conventions are followed in test files"
+  - "Check for proper use of context managers (with statements)"
+  - "Verify no hardcoded secrets or API keys"
+  - "Ensure proper logging practices"
+
+# Additional rules
+early_access: false
+enable_free_tier: true
