@@ -21,16 +21,54 @@ APIリクエストにはAPIキーによる認証が必要。
 モデルの検索とフィルタリングには、このエンドポイントを使用する。
 
 - **URL**: `https://civitai.com/api/v1/models`
-- **主要クエリパ��メータ**:
+- **主要クエリパラメータ**:
   - `limit`: 1ページあたりの取得件数（最大: 200, デフォルト: 100）。
-  - `page`: ページ番号。ページネーションのために使用する。
+  - `cursor`: **カーソルベースページネーション用のカーソル値**（重要：下記参照）。
+  - `page`: ページ番号（**非推奨**: オフセットベースのため、データの抜け漏れが発生する）。
   - `query`: 検索キーワード。
   - `tag`: フィルタリング対象のタグ名。
   - `types`: モデルタイプ。複数指定可能 (`Checkpoint`, `LORA`, `TextualInversion`など)。
     - **要件**: Checkpoint検索時は `types=Checkpoint`、LoRA検索時は `types=LORA` を指定する。
   - `sort`: ソート順 (`Highest Rated`, `Most Downloaded`, `Newest`など)。
+  - `baseModels`: ベースモデルフィルター（`Pony`, `SDXL 1.0` など）。
+
+#### カーソルベースページネーション（重要）
+
+**問題点**: 従来の`page`パラメータを使用したオフセットベースのページネーションは、新しいモデルが追加された際にデータの重複や欠落を引き起こす。
+
+**解決策**: CivitAI APIは`cursor`パラメータを使用したカーソルベースページネーションをサポート。
+
+- **仕組み**:
+  1. 初回リクエスト: `cursor`パラメータなしでリクエスト
+  2. レスポンスの`metadata.nextCursor`フィールドに次ページのカーソル値が含まれる
+  3. 次回リクエスト: `cursor=<nextCursor値>`を指定してリクエスト
+  4. `nextCursor`が`null`になるまで繰り返す
+
+- **実装例**:
+  ```python
+  def fetch_all_models_with_cursor(self, **params):
+      all_models = []
+      cursor = None
+      
+      while True:
+          if cursor:
+              params['cursor'] = cursor
+          
+          response = self.request('GET', '/models', params=params)
+          data = response.json()
+          
+          all_models.extend(data['items'])
+          
+          # 次のカーソルを取得
+          cursor = data.get('metadata', {}).get('nextCursor')
+          if not cursor:
+              break
+              
+      return all_models
+  ```
+
 - **実装方針**:
-  - `ModelExplorer`は、このエンドポイントをページネーションしながら呼び出し、全対象モデルの情報を収集する。
+  - `ModelExplorer`は、カーソルベースページネーションを使用して全データを確実に取得する。
   - 要件定義書にあるLoRAのタグ条件（`pony`等）は、APIから取得した各モデルの`tags`フィールドをクライアントサイドでフィルタリングして実現する。
 
 ### 3.2 モデルバージョンごとのダウンロード
@@ -63,6 +101,7 @@ APIリクエストにはAPIキーによる認証が必要。
           "id": 456,
           "name": "v1.0",
           "downloadUrl": "https://civitai.com/api/download/models/456",
+          "baseModel": "SDXL 1.0", // ベースモデル情報
           "files": [
             {
               "name": "model.safetensors",
@@ -80,7 +119,8 @@ APIリクエストにはAPIキーによる認証が必要。
     "currentPage": 1,
     "pageSize": 10,
     "totalItems": 100,
-    "totalPages": 10
+    "totalPages": 10,
+    "nextCursor": "eyJpZCI6MTIzNDU2fQ==" // カーソルベースページネーション用
   }
 }
 ```
@@ -92,7 +132,40 @@ APIリクエストにはAPIキーによる認証が必要。
   - 選択したバージョンの`files`配列から、`format: "SafeTensors"`のファイルを探し、その`downloadUrl`と`name`を`DownloadTask`に格納する。
   - `metadata`フィールドの`totalPages`を基に、ページネーションの終了条件を判���する。
 
-## 5. レート制限
+## 5. 実装時の発見事項
+
+### 5.1 デュアル検索方式の必要性
+
+実装過程で、単一の検索方式だけでは一部のモデルを見逃すことが判明：
+
+- **直接タグ検索**: `tag=style`など、タグで直接検索する方式
+- **ベースモデル経由検索**: `baseModels=Pony`でベースモデルを指定し、その後クライアントサイドでタグフィルタリングを行う方式
+
+**推奨アプローチ**: 両方の検索方式を組み合わせ、結果をmodel_idベースで重複除去する。
+
+### 5.2 検索条件の最適化
+
+効率的な検索のために以下の条件を使用：
+
+- **LoRA検索**: 
+  - `types=LORA`
+  - `tag=style`（styleタグ付きLoRAの場合）
+  - `sort=Highest Rated`
+  - `limit=200`（最大値）
+
+- **Checkpoint検索**:
+  - `types=Checkpoint`
+  - `baseModels=Pony`（ベースモデル指定）
+  - `sort=Highest Rated`
+  - `limit=200`
+
+### 5.3 パフォーマンスの最適化
+
+- **カーソルベースページネーション**: データの整合性を保証
+- **重複除去**: `model_id`ベースで効率的な重複除去
+- **レート制限**: API呼び出し間に適切な間隔（1-2秒）を設ける
+
+## 6. レート制限
 
 - **仕様**: 明確な回数や時間に関する規定はドキュメントにない。
 - **エラー**: 制限を超えると、HTTPステータスコード `429 Too Many Requests` が返される。
@@ -100,6 +173,13 @@ APIリクエストにはAPIキーによる認証が必要。
   - 計画書通り、API呼び出し間に固定のウェイト（例: 2秒）を入れる`RateLimiter`を実装し、デフォルトで有効にする。
   - `429`エラーを検知した場合、指数関数的に待機時間を増やすバックオフ機構を`CivitaiClient`に実装する。
 
-## 6. まとめ
+## 7. まとめ
 
-上記の仕様に基づき、各コンポーネントの実装を進める。特に、ページネーション処理、クライアントサイドでのタグフィルタリング、ダウンロード時のリダイレクトとファイル名取得が実装のキーポイントとなる。
+上記の仕様に基づき、各コンポーネントの実装を進める。特に、**カーソルベースページネーション**、**デュアル検索方式**、**クライアントサイドでのタグフィルタリング**、**ダウンロード時のリダイレクトとファイル名取得**が実装のキーポイントとなる。
+
+### 実装済み成果物
+
+- **カーソルベースページネーション**: `src/api/client.py`で実装済み
+- **デュアル検索方式**: `scripts/collection/`配下のスクリプトで実装
+- **URL収集器**: `src/core/url_collector.py`でURL収集とエクスポート機能を実装
+- **成果**: 合計735個のモデルURL（Checkpoint: 450個、LoRA: 285個）を収集
