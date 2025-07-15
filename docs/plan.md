@@ -35,7 +35,9 @@ civitiai/
 │   │   ├── filter.py          # モデルフィルタリング
 │   │   ├── cache.py           # キャッシュ管理
 │   │   ├── history.py         # ダウンロード履歴管理
-│   │   └── url_collector.py   # URL収集・出力
+│   │   ├── url_collector.py   # URL収集・出力
+│   │   ├── enhanced_url_collector.py  # 拡張URL収集（個別モデル対応）
+│   │   └── web_scraper.py     # ウェブスクレイピング機能
 │   ├── utils/
 │   │   ├── __init__.py
 │   │   ├── file_handler.py    # ファイル操作
@@ -44,6 +46,12 @@ civitiai/
 │   └── cli/
 │       ├── __init__.py
 │       └── main.py            # CLIエントリーポイント
+├── scripts/
+│   ├── collection/
+│   │   ├── enhanced_collection.py     # 拡張モデル収集
+│   │   ├── url_model_collector.py     # 個別URL収集
+│   │   └── batch_url_collector.py     # 一括URL収集
+│   └── organize_outputs.py            # 出力ファイル整理
 ├── tests/
 │   ├── __init__.py
 │   ├── test_api.py
@@ -61,7 +69,13 @@ civitiai/
 │   └── history.db            # ダウンロード履歴データベース
 ├── outputs/                   # 出力ファイルディレクトリ
 │   ├── urls/                 # URLリスト出力
-│   └── reports/              # レポート出力
+│   ├── enhanced/             # 拡張モデル情報出力
+│   ├── reports/              # レポート出力
+│   ├── checkpoints/          # Checkpoint整理済み
+│   ├── loras/                # LoRA整理済み
+│   ├── analysis/             # 分析結果
+│   ├── debug/                # デバッグ情報
+│   └── archive/              # アーカイブ
 ├── logs/                      # ログディレクトリ
 ├── .env.example
 ├── requirements.txt
@@ -78,6 +92,9 @@ class CivitaiClient:
     - __init__(api_key: str)
     - search_models(params: dict) -> List[Model]
     - get_model_details(model_id: int) -> Model
+    - get_model_by_id(model_id: int) -> Dict
+    - get_model_from_url(civitai_url: str) -> Dict
+    - search_models_with_cursor() -> List[Dict]
     - download_model(version_id: int) -> Response
 ```
 
@@ -118,39 +135,71 @@ class URLCollector:
     - export_to_json(urls: List[URLInfo], filename: str)
 ```
 
+#### 2.2.6 拡張URL収集 (core/enhanced_url_collector.py)
+```python
+class EnhancedURLCollector:
+    - __init__(api_key: str, output_dir: Path)
+    - collect_enhanced_model_info(models: List[Dict]) -> List[ModelInfo]
+    - validate_download_urls(model_infos: List[ModelInfo]) -> List[ModelInfo]
+    - export_all_formats(model_infos: List[ModelInfo], base_filename: str) -> Dict[str, Path]
+    - export_html(model_infos: List[ModelInfo], filename: str) -> Path
+```
+
+#### 2.2.7 ウェブスクレイピング (core/web_scraper.py)
+```python
+class CivitaiWebScraper:
+    - __init__(username: str, password: str)
+    - login() -> bool
+    - get_user_models(username: str) -> List[str]
+    - get_restricted_model_urls(username: str) -> List[str]
+    - extract_model_id_from_url(url: str) -> int
+    - maintain_session() -> bool
+```
+
 ## 3. 実装フェーズ
 
 ### Phase 1: 基盤構築（2日）
 - [x] プロジェクト構造の作成
-- [ ] 開発環境のセットアップ
-- [ ] 基本的な設定管理システム
-- [ ] ロギングシステムの実装
+- [x] 開発環境のセットアップ
+- [x] 基本的な設定管理システム
+- [x] ロギングシステムの実装
 
 ### Phase 2: API統合（3日）
-- [ ] Civitai APIクライアントの実装
-- [ ] 認証機能の実装
-- [ ] モデル検索機能の実装
-- [ ] エラーハンドリングとリトライロジック
+- [x] Civitai APIクライアントの実装
+- [x] 認証機能の実装
+- [x] モデル検索機能の実装
+- [x] エラーハンドリングとリトライロジック
+- [x] 個別モデル取得機能（URL指定）
+- [x] カーソルベースページネーション修正
 
 ### Phase 3: コア機能実装（3日）
-- [ ] モデルフィルタリング機能
-- [ ] URL収集機能（URLCollector）
+- [x] モデルフィルタリング機能
+- [x] URL収集機能（URLCollector）
+- [x] 拡張URL収集機能（EnhancedURLCollector）
+- [x] 個別・一括URL取得スクリプト
+- [x] 履歴管理システム（SQLite）
 - [ ] ダウンロード機能（プログレス表示付き）
 - [ ] キャッシュシステム
-- [ ] 履歴管理システム（SQLite）
 - [ ] 中断・再開機能
 
-### Phase 4: CLI開発（1日）
-- [ ] コマンドライン引数パーサー
-- [ ] 対話的モードの実装
-- [ ] バッチ実行モード
-- [ ] 進捗表示UI
+### Phase 4: 制限付きモデル取得（新規追加）
+- [ ] ウェブスクレイピング機能実装
+- [ ] ログイン認証システム
+- [ ] セッション管理とCookie保持
+- [ ] 制限付きモデルURL自動収集
+- [ ] 環境変数による認証情報管理
 
-### Phase 5: テストとドキュメント（1日）
+### Phase 5: CLI開発（1日）
+- [x] コマンドライン引数パーサー
+- [ ] 対話的モードの実装
+- [x] バッチ実行モード
+- [x] 進捗表示UI
+
+### Phase 6: テストとドキュメント（1日）
 - [ ] ユニットテストの作成
 - [ ] 統合テストの実施
-- [ ] ドキュメントの作成
-- [ ] サンプルスクリプトの作成
+- [x] ドキュメントの作成
+- [x] サンプルスクリプトの作成
 
 ## 4. 詳細タスクリスト
 
@@ -450,10 +499,18 @@ def main(list_history, cleanup):
 # Civitai API設定
 CIVITAI_API_KEY=your_api_key_here
 
+# Civitai ログイン認証（制限付きモデル取得用）
+CIVITAI_USERNAME=your_username_here
+CIVITAI_PASSWORD=your_password_here
+
 # 動作モード設定
 # DOWNLOAD_ENABLED: true/false（デフォルト: false）
 # falseの場合、URL収集のみ実行
 DOWNLOAD_ENABLED=false
+
+# スクレイピング設定
+SCRAPING_ENABLED=false  # true/false（デフォルト: false）
+SESSION_CACHE_DIR=./cache/sessions
 
 # 出力設定
 OUTPUT_FORMAT=csv  # text, csv, json から選択
@@ -643,6 +700,301 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
+
+### 5.7 ウェブスクレイピング実装詳細
+
+#### CivitaiWebScraper実装（web_scraper.py）
+```python
+import os
+import pickle
+import requests
+from pathlib import Path
+from typing import List, Optional
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+class CivitaiWebScraper:
+    """CivitAI制限付きモデル取得用ウェブスクレイピング"""
+    
+    def __init__(self, username: str, password: str, cache_dir: str = "./cache/sessions"):
+        self.username = username
+        self.password = password
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.session = requests.Session()
+        self.session_file = self.cache_dir / f"session_{username}.pkl"
+        
+        # Seleniumドライバー設定
+        self.driver_options = webdriver.ChromeOptions()
+        self.driver_options.add_argument("--headless")
+        self.driver_options.add_argument("--no-sandbox")
+        self.driver_options.add_argument("--disable-dev-shm-usage")
+        self.driver = None
+    
+    def _init_driver(self):
+        """Seleniumドライバーを初期化"""
+        if not self.driver:
+            self.driver = webdriver.Chrome(options=self.driver_options)
+    
+    def _save_session(self):
+        """セッション情報を保存"""
+        with open(self.session_file, 'wb') as f:
+            pickle.dump(self.session.cookies, f)
+    
+    def _load_session(self) -> bool:
+        """保存されたセッション情報を読み込み"""
+        if self.session_file.exists():
+            try:
+                with open(self.session_file, 'rb') as f:
+                    cookies = pickle.load(f)
+                    self.session.cookies.update(cookies)
+                return self._validate_session()
+            except Exception as e:
+                print(f"セッション読み込みエラー: {e}")
+                return False
+        return False
+    
+    def _validate_session(self) -> bool:
+        """セッションの有効性を確認"""
+        try:
+            response = self.session.get("https://civitai.com/user/account", timeout=10)
+            return response.status_code == 200 and "login" not in response.url.lower()
+        except:
+            return False
+    
+    def login(self) -> bool:
+        """CivitAIにログイン"""
+        # 既存セッションの確認
+        if self._load_session():
+            print("既存セッションを使用")
+            return True
+        
+        print("新規ログインを実行")
+        self._init_driver()
+        
+        try:
+            # ログインページにアクセス
+            self.driver.get("https://civitai.com/login")
+            
+            # ユーザー名・パスワード入力
+            username_field = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.NAME, "email"))
+            )
+            password_field = self.driver.find_element(By.NAME, "password")
+            
+            username_field.send_keys(self.username)
+            password_field.send_keys(self.password)
+            
+            # ログインボタンクリック
+            login_button = self.driver.find_element(By.XPATH, "//button[@type='submit']")
+            login_button.click()
+            
+            # ログイン完了を待機
+            WebDriverWait(self.driver, 10).until(
+                lambda driver: "login" not in driver.current_url.lower()
+            )
+            
+            # SeleniumのCookieをrequests.Sessionに移行
+            for cookie in self.driver.get_cookies():
+                self.session.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'])
+            
+            # セッション保存
+            self._save_session()
+            
+            print("ログイン成功")
+            return True
+            
+        except Exception as e:
+            print(f"ログインエラー: {e}")
+            return False
+        finally:
+            if self.driver:
+                self.driver.quit()
+                self.driver = None
+    
+    def get_user_models(self, target_username: str, max_pages: int = 10) -> List[str]:
+        """指定ユーザーの全モデルURLを取得"""
+        if not self.login():
+            raise Exception("ログインに失敗しました")
+        
+        model_urls = []
+        page = 1
+        
+        while page <= max_pages:
+            url = f"https://civitai.com/user/{target_username}/models?page={page}"
+            
+            try:
+                response = self.session.get(url, timeout=10)
+                response.raise_for_status()
+                
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # モデルリンクを抽出
+                model_links = soup.find_all('a', href=lambda href: href and '/models/' in href)
+                page_models = []
+                
+                for link in model_links:
+                    href = link.get('href')
+                    if href and href.startswith('/models/') and href not in model_urls:
+                        full_url = f"https://civitai.com{href}"
+                        model_urls.append(full_url)
+                        page_models.append(full_url)
+                
+                print(f"ページ {page}: {len(page_models)}個のモデルを発見")
+                
+                # 次ページが存在するかチェック
+                next_button = soup.find('a', text=lambda text: text and 'next' in text.lower())
+                if not next_button or not page_models:
+                    break
+                
+                page += 1
+                time.sleep(1)  # レート制限対策
+                
+            except Exception as e:
+                print(f"ページ {page} の取得でエラー: {e}")
+                break
+        
+        print(f"合計 {len(model_urls)} 個のモデルURLを発見")
+        return model_urls
+    
+    def get_restricted_model_urls(self, target_username: str) -> List[str]:
+        """制限付きモデルのURLを取得（ログイン認証でのみアクセス可能）"""
+        return self.get_user_models(target_username)
+    
+    def extract_model_id_from_url(self, url: str) -> Optional[int]:
+        """URLからモデルIDを抽出"""
+        import re
+        match = re.search(r'/models/(\d+)', url)
+        return int(match.group(1)) if match else None
+    
+    def maintain_session(self) -> bool:
+        """セッションの保持確認"""
+        return self._validate_session()
+    
+    def __del__(self):
+        """デストラクタ"""
+        if self.driver:
+            self.driver.quit()
+
+# 使用例
+def collect_restricted_models(username: str, target_user: str, password: str):
+    """制限付きモデルの一括取得"""
+    scraper = CivitaiWebScraper(username, password)
+    
+    try:
+        # ログインしてURLを取得
+        model_urls = scraper.get_restricted_model_urls(target_user)
+        
+        # URLをファイルに保存
+        output_file = f"restricted_models_{target_user}.txt"
+        with open(output_file, 'w') as f:
+            for url in model_urls:
+                f.write(f"{url}\n")
+        
+        print(f"制限付きモデルURLを保存: {output_file}")
+        
+        # 一括収集スクリプトで処理
+        return model_urls
+        
+    except Exception as e:
+        print(f"制限付きモデル収集エラー: {e}")
+        return []
+
+# 環境変数からの実行例
+if __name__ == "__main__":
+    username = os.getenv("CIVITAI_USERNAME")
+    password = os.getenv("CIVITAI_PASSWORD")
+    target_user = "DanMogren"
+    
+    if username and password:
+        urls = collect_restricted_models(username, target_user, password)
+        print(f"{len(urls)}個の制限付きモデルを発見")
+    else:
+        print("認証情報が設定されていません")
+```
+
+#### スクレイピング統合ワークフロー
+```python
+def enhanced_user_collection_with_scraping(target_username: str):
+    """スクレイピングとAPIを組み合わせた包括的なユーザーモデル収集"""
+    
+    # 環境変数から認証情報を取得
+    api_key = os.getenv("CIVITAI_API_KEY")
+    civitai_username = os.getenv("CIVITAI_USERNAME")
+    civitai_password = os.getenv("CIVITAI_PASSWORD")
+    scraping_enabled = os.getenv("SCRAPING_ENABLED", "false").lower() == "true"
+    
+    all_model_infos = []
+    
+    # 1. 通常のAPI検索（公開モデル）
+    print("🔍 API経由で公開モデルを取得中...")
+    client = CivitaiClient(api_key)
+    collector = EnhancedURLCollector(api_key)
+    
+    try:
+        api_models = client.search_models_with_cursor(username=target_username, max_pages=5)
+        if api_models:
+            api_model_infos = collector.collect_enhanced_model_info(api_models)
+            all_model_infos.extend(api_model_infos)
+            print(f"✅ API経由: {len(api_model_infos)}個のモデルを取得")
+    except Exception as e:
+        print(f"❌ API取得エラー: {e}")
+    
+    # 2. ウェブスクレイピング（制限付きモデル）
+    if scraping_enabled and civitai_username and civitai_password:
+        print("\n🌐 ウェブスクレイピングで制限付きモデルを取得中...")
+        
+        try:
+            scraper = CivitaiWebScraper(civitai_username, civitai_password)
+            restricted_urls = scraper.get_restricted_model_urls(target_username)
+            
+            # 既に取得済みのモデルIDを除外
+            existing_ids = {info.model_id for info in all_model_infos}
+            new_urls = []
+            
+            for url in restricted_urls:
+                model_id = scraper.extract_model_id_from_url(url)
+                if model_id and model_id not in existing_ids:
+                    new_urls.append(url)
+            
+            print(f"🔍 新規制限付きモデル: {len(new_urls)}個のURLを発見")
+            
+            # 個別API取得で詳細情報を収集
+            for url in new_urls:
+                try:
+                    model_data = client.get_model_from_url(url)
+                    model_info = collector.collect_enhanced_model_info([model_data])
+                    all_model_infos.extend(model_info)
+                    time.sleep(1)  # レート制限
+                except Exception as e:
+                    print(f"❌ 個別取得エラー ({url}): {e}")
+            
+            print(f"✅ スクレイピング経由: {len(new_urls)}個のモデルを追加取得")
+            
+        except Exception as e:
+            print(f"❌ スクレイピングエラー: {e}")
+    
+    # 3. 結果の統合とエクスポート
+    if all_model_infos:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_filename = f"{target_username}_comprehensive_{timestamp}"
+        
+        exported_files = collector.export_all_formats(all_model_infos, base_filename)
+        
+        print(f"\n📁 包括的収集完了!")
+        print(f"📊 総モデル数: {len(all_model_infos)}")
+        print(f"📄 CSV: {exported_files['csv']}")
+        print(f"📋 JSON: {exported_files['json']}")
+        print(f"🌐 HTML: {exported_files['html']}")
+        
+        return all_model_infos
+    else:
+        print("❌ モデルが取得できませんでした")
+        return []
 ```
 
 ## 6. リスク管理

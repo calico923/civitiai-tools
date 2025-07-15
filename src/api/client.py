@@ -2,6 +2,7 @@
 
 import requests
 import time
+import json
 from typing import List, Dict, Optional
 from urllib.parse import urlencode
 
@@ -44,10 +45,66 @@ class CivitaiClient:
         })
         self.rate_limiter = RateLimiter()
     
+    def request(self, method: str, endpoint: str, params: Optional[Dict] = None, **kwargs) -> requests.Response:
+        """
+        汎用的なHTTPリクエストメソッド
+        
+        Args:
+            method: HTTPメソッド (GET, POST, etc.)
+            endpoint: APIエンドポイント (例: '/models')
+            params: URLパラメータ
+            **kwargs: requests.requestに渡す追加引数
+            
+        Returns:
+            requests.Response オブジェクト
+        """
+        # レート制限チェック
+        self.rate_limiter.wait_if_needed()
+        
+        # URL構築
+        url = f"{self.base_url}{endpoint}"
+        
+        # パラメータをURL形式に変換（Unicode文字を適切にエンコード）
+        if params:
+            url_parts = []
+            for key, value in params.items():
+                if isinstance(value, list):
+                    for item in value:
+                        # UTF-8エンコーディングを明示的に指定
+                        encoded_item = requests.utils.quote(str(item), safe='', encoding='utf-8')
+                        url_parts.append(f"{key}={encoded_item}")
+                else:
+                    # UTF-8エンコーディングを明示的に指定
+                    encoded_value = requests.utils.quote(str(value), safe='', encoding='utf-8')
+                    url_parts.append(f"{key}={encoded_value}")
+            
+            if url_parts:
+                url += "?" + "&".join(url_parts)
+        
+        print(f"APIリクエスト: {url}")
+        
+        try:
+            response = self.session.request(method, url, timeout=30, **kwargs)
+            response.raise_for_status()
+            
+            # レスポンスの文字エンコーディングを確認・修正
+            if response.encoding is None:
+                response.encoding = 'utf-8'
+            
+            return response
+        
+        except requests.exceptions.RequestException as e:
+            print(f"APIリクエストエラー: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"レスポンス内容: {e.response.text[:500]}...")  # 長すぎるレスポンスは切り詰め
+            raise
+    
     def search_models(self, 
                      query: Optional[str] = None,
                      types: Optional[List[str]] = None,
                      tag: Optional[str] = None,
+                     username: Optional[str] = None,
+                     base_models: Optional[List[str]] = None,
                      sort: str = "Highest Rated",
                      limit: int = 100,
                      page: int = 1,
@@ -59,6 +116,8 @@ class CivitaiClient:
             query: 検索クエリ
             types: モデルタイプのリスト（例: ["Checkpoint", "LORA"]）
             tag: タグでフィルタリング
+            username: 作成者のユーザー名
+            base_models: ベースモデルのリスト
             sort: ソート順（"Most Downloaded", "Highest Rated", "Newest"）
             limit: 1ページあたりの結果数（最大100）
             page: ページ番号
@@ -73,9 +132,12 @@ class CivitaiClient:
         # パラメータ構築
         params = {
             "limit": limit,
-            "page": page,
             "sort": sort
         }
+        
+        # クエリ検索でない場合のみpageパラメータを追加
+        if not query:
+            params["page"] = page
         
         if query:
             params["query"] = query
@@ -86,18 +148,28 @@ class CivitaiClient:
         if tag:
             params["tag"] = tag
         
+        if username:
+            params["username"] = username
+        
+        if base_models:
+            params["baseModels"] = base_models
+        
         if cursor:
             params["cursor"] = cursor
         
-        # URL構築
+        # URL構築（Unicode文字を適切にエンコード）
         from urllib.parse import quote_plus
         url_parts = []
         for key, value in params.items():
-            if key == "types" and isinstance(value, list):
-                for t in value:
-                    url_parts.append(f"types={quote_plus(t)}")
+            if key in ["types", "baseModels"] and isinstance(value, list):
+                for item in value:
+                    # UTF-8エンコーディングを明示的に指定
+                    encoded_item = quote_plus(str(item), encoding='utf-8')
+                    url_parts.append(f"{key}={encoded_item}")
             else:
-                url_parts.append(f"{key}={quote_plus(str(value))}")
+                # UTF-8エンコーディングを明示的に指定
+                encoded_value = quote_plus(str(value), encoding='utf-8')
+                url_parts.append(f"{key}={encoded_value}")
         
         url = f"{self.base_url}/models?" + "&".join(url_parts)
         
@@ -106,18 +178,32 @@ class CivitaiClient:
         try:
             response = self.session.get(url, timeout=30)
             response.raise_for_status()
-            return response.json()
+            
+            # レスポンスの文字エンコーディングを確認・修正
+            if response.encoding is None:
+                response.encoding = 'utf-8'
+            
+            # JSONデコード時のエラーハンドリング強化
+            try:
+                return response.json()
+            except json.JSONDecodeError as json_err:
+                print(f"JSON デコードエラー: {json_err}")
+                print(f"レスポンス文字数: {len(response.text)}")
+                print(f"エラー位置付近: {response.text[max(0, json_err.pos-50):json_err.pos+50]}")
+                raise
         
         except requests.exceptions.RequestException as e:
             print(f"APIリクエストエラー: {e}")
             if hasattr(e, 'response') and e.response is not None:
-                print(f"レスポンス内容: {e.response.text}")
+                print(f"レスポンス内容: {e.response.text[:500]}...")  # 長すぎるレスポンスは切り詰め
             raise
     
     def search_models_with_cursor(self, 
                                  query: Optional[str] = None,
                                  types: Optional[List[str]] = None,
                                  tag: Optional[str] = None,
+                                 username: Optional[str] = None,
+                                 base_models: Optional[List[str]] = None,
                                  sort: str = "Highest Rated",
                                  limit: int = 100,
                                  max_pages: int = 50) -> List[Dict]:
@@ -128,6 +214,8 @@ class CivitaiClient:
             query: 検索クエリ
             types: モデルタイプのリスト
             tag: タグでフィルタリング
+            username: 作成者のユーザー名
+            base_models: ベースモデルのリスト
             sort: ソート順
             limit: 1ページあたりの結果数
             max_pages: 最大ページ数（安全のため）
@@ -144,15 +232,30 @@ class CivitaiClient:
             print(f"ページ {page_count} を取得中...")
             
             try:
-                response = self.search_models(
-                    query=query,
-                    types=types,
-                    tag=tag,
-                    sort=sort,
-                    limit=limit,
-                    page=1,  # カーソルを使う場合は常に1
-                    cursor=cursor
-                )
+                # クエリ検索の場合はpageパラメータは使用しない
+                if query:
+                    response = self.search_models(
+                        query=query,
+                        types=types,
+                        tag=tag,
+                        username=username,
+                        base_models=base_models,
+                        sort=sort,
+                        limit=limit,
+                        cursor=cursor
+                    )
+                else:
+                    response = self.search_models(
+                        query=query,
+                        types=types,
+                        tag=tag,
+                        username=username,
+                        base_models=base_models,
+                        sort=sort,
+                        limit=limit,
+                        page=1,  # カーソルを使う場合は常に1
+                        cursor=cursor
+                    )
                 
                 items = response.get("items", [])
                 metadata = response.get("metadata", {})
@@ -325,3 +428,56 @@ class CivitaiClient:
         else:
             print(f"\n合計 {len(all_models)} 個の{tag}関連{model_type}を発見")
         return all_models
+    
+    def get_model_by_id(self, model_id: int) -> Dict:
+        """
+        特定のモデルIDでモデル情報を取得
+        
+        Args:
+            model_id: モデルID
+            
+        Returns:
+            モデル情報
+        """
+        # レート制限チェック
+        self.rate_limiter.wait_if_needed()
+        
+        try:
+            response = self.request('GET', f'/models/{model_id}')
+            
+            # JSONデコード時のエラーハンドリング強化
+            try:
+                return response.json()
+            except json.JSONDecodeError as json_err:
+                print(f"JSON デコードエラー (Model ID: {model_id}): {json_err}")
+                print(f"レスポンス文字数: {len(response.text)}")
+                print(f"エラー位置付近: {response.text[max(0, json_err.pos-50):json_err.pos+50]}")
+                raise
+        
+        except requests.exceptions.RequestException as e:
+            print(f"モデル取得エラー (ID: {model_id}): {e}")
+            raise
+    
+    def get_model_from_url(self, civitai_url: str) -> Dict:
+        """
+        CivitAI モデルページURLからモデル情報を取得
+        
+        Args:
+            civitai_url: CivitAIモデルページURL (例: https://civitai.com/models/1369545)
+            
+        Returns:
+            モデル情報
+        """
+        import re
+        
+        # URLからモデルIDを抽出
+        pattern = r'https://civitai\.com/models/(\d+)'
+        match = re.search(pattern, civitai_url)
+        
+        if not match:
+            raise ValueError(f"無効なCivitAI URL: {civitai_url}")
+        
+        model_id = int(match.group(1))
+        print(f"URLからモデルID {model_id} を抽出")
+        
+        return self.get_model_by_id(model_id)

@@ -27,8 +27,11 @@ APIリクエストにはAPIキーによる認証が必要。
   - `page`: ページ番号（**非推奨**: オフセットベースのため、データの抜け漏れが発生する）。
   - `query`: 検索キーワード。
   - `tag`: フィルタリング対象のタグ名。
-  - `types`: モデルタイプ。複数指定可能 (`Checkpoint`, `LORA`, `TextualInversion`など)。
-    - **要件**: Checkpoint検索時は `types=Checkpoint`、LoRA検索時は `types=LORA` を指定する。
+  - `types`: モデルタイプ。複数指定可能 (`Checkpoint`, `LORA`, `LoCon`, `TextualInversion`など)。
+    - **要件**: 
+      - Checkpoint検索時は `types=Checkpoint`
+      - LoRA検索時は `types=LORA`
+      - LyCORIS検索時は `types=LoCon`（内部的にはLoConとして処理される）
   - `sort`: ソート順 (`Highest Rated`, `Most Downloaded`, `Newest`など)。
   - `baseModels`: ベースモデルフィルター（`Pony`, `SDXL 1.0` など）。
 
@@ -312,7 +315,43 @@ APIリクエストにはAPIキーによる認証が必要。
 - エラーハンドリングの強化
 - パフォーマンスモニタリング
 
-## 9. まとめ
+## 9. モデルタイプ仕様
+
+### 9.1 API内部でのモデルタイプ表記
+
+CivitAI APIでは、一般的な呼称と内部的なAPI表記が異なるモデルタイプが存在する：
+
+- **Checkpoint**: `types=Checkpoint`（表記一致）
+- **LoRA**: `types=LORA`（表記一致）
+- **LyCORIS**: `types=LoCon`（⚠️ 注意：APIでは "LoCon" として扱われる）
+
+### 9.2 実装時の注意点
+
+#### 型名正規化の必要性
+```python
+def normalize_type(type_str):
+    if type_str.lower() == "checkpoint":
+        return "Checkpoint"
+    elif type_str.lower() == "lora":
+        return "LORA"
+    elif type_str.lower() in ["lycoris", "locon"]:
+        return "LoCon"  # LyCORISはAPIでLoConとして処理
+    else:
+        return type_str.title()
+```
+
+#### コマンドライン引数での対応
+- ユーザー入力: `--type lycoris`
+- API送信時: `types=LoCon`
+- 出力ファイル名: `illustrious_lycoris_*`（ユーザー向けはLyCORIS表記を維持）
+
+### 9.3 検索結果の特徴
+
+- **Checkpoint**: 大容量モデル（平均2-6GB）、ベースモデルとして機能
+- **LORA**: 軽量アダプター（平均10-200MB）、最も豊富なモデル数
+- **LoCon/LyCORIS**: 中間的な容量とモデル数、スタイル特化が多い
+
+## 10. まとめ
 
 CivitAI APIには多くの制限があるが、適切な回避策により実用的なデータ収集が可能。特に、**カーソルベースページネーション**、**デュアル検索方式**、**クライアントサイドでのタグフィルタリング**、**ダウンロード時のリダイレクトとファイル名取得**が実装のキーポイントとなる。
 
