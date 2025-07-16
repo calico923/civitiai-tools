@@ -1,0 +1,16 @@
+{
+  "discovered_from_samples": {},
+  "valid_types": {
+    "Checkpoint": "unknown",
+    "LORA": "unknown",
+    "LoCon": "unknown",
+    "TextualInversion": "unknown",
+    "Hypernetwork": "unknown",
+    "AestheticGradient": "unknown",
+    "VAE": "unknown",
+    "Poses": "unknown",
+    "Wildcards": "unknown",
+    "Other": "unknown"
+  },
+  "all_discovered_types": []
+}

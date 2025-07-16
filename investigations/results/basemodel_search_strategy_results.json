@@ -1,0 +1,174 @@
+{
+  "Checkpoint": {
+    "illustrious": {
+      "total": 0,
+      "actual_basemodels": [
+        "Illustrious",
+        "Illustrious",
+        "Illustrious"
+      ]
+    },
+    "pony": {
+      "total": 0,
+      "actual_basemodels": [
+        "Pony",
+        "Pony",
+        "Pony"
+      ]
+    },
+    "noobai": {
+      "total": 0,
+      "actual_basemodels": [
+        "Illustrious",
+        "Illustrious",
+        "Illustrious"
+      ]
+    },
+    "sdxl": {
+      "total": 0,
+      "actual_basemodels": [
+        "SDXL Turbo",
+        "SDXL 1.0",
+        "Illustrious"
+      ]
+    },
+    "sd 1.5": {
+      "total": 0,
+      "actual_basemodels": [
+        "SDXL 1.0",
+        "SDXL 1.0",
+        "SDXL 1.0"
+      ]
+    },
+    "flux": {
+      "total": 0,
+      "actual_basemodels": [
+        "Flux.1 D",
+        "Flux.1 D",
+        "Flux.1 D"
+      ]
+    },
+    "sd 3.0": {
+      "total": 0,
+      "actual_basemodels": [
+        "Pony",
+        "SD 1.5",
+        "SD 1.5"
+      ]
+    }
+  },
+  "LORA": {
+    "illustrious": {
+      "total": 0,
+      "actual_basemodels": [
+        "Flux.1 D",
+        "Flux.1 D",
+        "Flux.1 D"
+      ]
+    },
+    "pony": {
+      "total": 0,
+      "actual_basemodels": [
+        "Flux.1 D",
+        "Flux.1 D",
+        "Pony"
+      ]
+    },
+    "noobai": {
+      "total": 0,
+      "actual_basemodels": [
+        "NoobAI",
+        "NoobAI",
+        "SDXL 1.0"
+      ]
+    },
+    "sdxl": {
+      "total": 0,
+      "actual_basemodels": [
+        "Flux.1 D",
+        "SDXL 1.0",
+        "Pony"
+      ]
+    },
+    "sd 1.5": {
+      "total": 0,
+      "actual_basemodels": [
+        "SD 1.5",
+        "SD 1.5",
+        "SD 1.5"
+      ]
+    },
+    "flux": {
+      "total": 0,
+      "actual_basemodels": [
+        "Flux.1 D",
+        "Flux.1 D",
+        "Flux.1 D"
+      ]
+    },
+    "sd 3.0": {
+      "total": 0,
+      "actual_basemodels": [
+        "SDXL 1.0",
+        "SD 1.5",
+        "Pony"
+      ]
+    }
+  },
+  "LoCon": {
+    "illustrious": {
+      "total": 0,
+      "actual_basemodels": [
+        "Illustrious",
+        "Illustrious",
+        "Illustrious"
+      ]
+    },
+    "pony": {
+      "total": 0,
+      "actual_basemodels": [
+        "Pony",
+        "SDXL 1.0"
+      ]
+    },
+    "noobai": {
+      "total": 0,
+      "actual_basemodels": [
+        "Illustrious",
+        "Illustrious",
+        "Illustrious"
+      ]
+    },
+    "sdxl": {
+      "total": 0,
+      "actual_basemodels": [
+        "SDXL 1.0",
+        "Pony",
+        "Pony"
+      ]
+    },
+    "sd 1.5": {
+      "total": 0,
+      "actual_basemodels": [
+        "SD 1.5",
+        "SD 1.5",
+        "SD 1.5"
+      ]
+    },
+    "flux": {
+      "total": 0,
+      "actual_basemodels": [
+        "Flux.1 S",
+        "Flux.1 D"
+      ]
+    },
+    "sd 3.0": {
+      "total": 0,
+      "actual_basemodels": [
+        "SD 1.5",
+        "SD 1.5",
+        "SD 1.5"
+      ]
+    }
+  }
+}

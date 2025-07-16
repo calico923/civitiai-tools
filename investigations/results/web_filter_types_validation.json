@@ -1,0 +1,183 @@
+{
+  "valid_types": [
+    {
+      "web_filter_name": "Checkpoint",
+      "total": 0,
+      "actual_types": [
+        "Checkpoint"
+      ],
+      "examples": [
+        "Pony Diffusion V6 XL",
+        "majicMIX realistic 麦橘写实"
+      ]
+    },
+    {
+      "web_filter_name": "Controlnet",
+      "total": 0,
+      "actual_types": [
+        "Controlnet"
+      ],
+      "examples": [
+        "ControlNet 1.1 Models",
+        "Controlnet QR Pattern (QR Codes)"
+      ]
+    },
+    {
+      "web_filter_name": "Detection",
+      "total": 0,
+      "actual_types": [
+        "Detection"
+      ],
+      "examples": [
+        "Eyes detection (Adetailer)",
+        "Eyeful | Robust eye detection for Adetailer / ComfyUI"
+      ]
+    },
+    {
+      "web_filter_name": "DoRA",
+      "total": 0,
+      "actual_types": [
+        "DoRA"
+      ],
+      "examples": [
+        "Ahegao v3 (Tongue Out, Cross-eyed) SDXL/Pony 1k",
+        "Amateur Snapshot Photo - [STYLE] [LORA] [FLUX]"
+      ]
+    },
+    {
+      "web_filter_name": "Hypernetwork",
+      "total": 0,
+      "actual_types": [
+        "Hypernetwork"
+      ],
+      "examples": [
+        "[LamaPanama] Waven Chibi Style",
+        "Dantion Marble Statues Hypernetwork"
+      ]
+    },
+    {
+      "web_filter_name": "Other",
+      "total": 0,
+      "actual_types": [
+        "Other"
+      ],
+      "examples": [
+        "[Guide] Make your own Loras, easy and free",
+        "No more color contamination - Read Description"
+      ]
+    },
+    {
+      "web_filter_name": "Poses",
+      "total": 0,
+      "actual_types": [
+        "Poses"
+      ],
+      "examples": [
+        "Online 3D Openpose Editor [在线3D版openpose编辑器]",
+        "Poses Packs Collection"
+      ]
+    },
+    {
+      "web_filter_name": "Upscaler",
+      "total": 0,
+      "actual_types": [
+        "Upscaler"
+      ],
+      "examples": [
+        "Remacri",
+        "4x-Ultrasharp"
+      ]
+    },
+    {
+      "web_filter_name": "VAE",
+      "total": 0,
+      "actual_types": [
+        "VAE"
+      ],
+      "examples": [
+        "ClearVAE(SD1.5)",
+        "SDXL VAE"
+      ]
+    },
+    {
+      "web_filter_name": "Wildcards",
+      "total": 0,
+      "actual_types": [
+        "Wildcards"
+      ],
+      "examples": [
+        "Full Feature Fantasy Prompts - Characters",
+        "The Prompt Builder"
+      ]
+    },
+    {
+      "web_filter_name": "Workflows",
+      "total": 0,
+      "actual_types": [
+        "Workflows"
+      ],
+      "examples": [
+        "How to Generate Multiple Different Characters, Mix Characters, and/or Minimize Color Contamination | Regional Prompt, Adetailer, and Inpaint | My Workflow",
+        "ipiv's Morph - img2vid AnimateDiff LCM / Hyper-SD"
+      ]
+    },
+    {
+      "web_filter_name": "AestheticGradient",
+      "total": 0,
+      "actual_types": [
+        "AestheticGradient"
+      ],
+      "examples": [
+        "The Alleyways of Seoul (Scenic, background, NSFW samples)",
+        "Dark Victorian Aesthetic"
+      ]
+    },
+    {
+      "web_filter_name": "TextualInversion",
+      "total": 0,
+      "actual_types": [
+        "TextualInversion"
+      ],
+      "examples": [
+        "EasyNegative",
+        "Deep Negative V1.x"
+      ]
+    },
+    {
+      "web_filter_name": "LORA",
+      "total": 0,
+      "actual_types": [
+        "LORA"
+      ],
+      "examples": [
+        "Detail Tweaker XL",
+        "Detail Tweaker LoRA (细节调整LoRA)"
+      ]
+    },
+    {
+      "web_filter_name": "LoCon",
+      "total": 0,
+      "actual_types": [
+        "LoCon"
+      ],
+      "examples": [
+        "EnvyBetterHands LoCon",
+        "Multiple Girls Group"
+      ]
+    }
+  ],
+  "invalid_types": [
+    "Aesthetic Gradient",
+    "LoRA",
+    "LyCORIS",
+    "Motion",
+    "Embedding",
+    "ControlNet",
+    "Embeddings"
+  ],
+  "summary": {
+    "total_tested": 22,
+    "valid_count": 15,
+    "invalid_count": 7
+  }
+}
