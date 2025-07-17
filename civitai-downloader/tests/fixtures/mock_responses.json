@@ -1,0 +1,287 @@
+{
+  "search_response": {
+    "items": [
+      {
+        "id": 123456,
+        "name": "Test Anime Model",
+        "type": "Checkpoint",
+        "description": "A high-quality anime checkpoint model",
+        "nsfw": false,
+        "allowNoCredit": true,
+        "allowCommercialUse": true,
+        "allowDerivatives": true,
+        "allowDifferentLicense": true,
+        "stats": {
+          "downloadCount": 15432,
+          "favoriteCount": 892,
+          "commentCount": 156,
+          "ratingCount": 234,
+          "rating": 4.8
+        },
+        "creator": {
+          "username": "test_creator",
+          "image": "https://example.com/avatar.jpg"
+        },
+        "tags": [
+          {"name": "anime"},
+          {"name": "character"},
+          {"name": "illustrious"}
+        ],
+        "images": [
+          {
+            "id": 789123,
+            "url": "https://example.com/image1.jpg",
+            "width": 1024,
+            "height": 1024,
+            "hash": "abc123def456",
+            "nsfw": false,
+            "meta": {
+              "prompt": "anime girl, high quality",
+              "negativePrompt": "bad quality, blurry",
+              "steps": 20,
+              "sampler": "DPM++ 2M Karras",
+              "cfgScale": 7
+            }
+          }
+        ],
+        "modelVersions": [
+          {
+            "id": 654321,
+            "name": "v1.0",
+            "description": "Initial release",
+            "baseModel": "Illustrious",
+            "createdAt": "2024-01-15T10:30:00Z",
+            "updatedAt": "2024-01-15T10:30:00Z",
+            "trainedWords": ["test_character", "anime_style"],
+            "files": [
+              {
+                "id": 987654,
+                "name": "testModel_v1.safetensors",
+                "type": "Model",
+                "metadata": {
+                  "fp": "fp16",
+                  "size": "full",
+                  "format": "SafeTensor"
+                },
+                "hashes": {
+                  "AutoV2": "abc123def456789",
+                  "SHA256": "def456abc789123"
+                },
+                "downloadUrl": "https://civitai.com/api/download/models/654321",
+                "sizeKB": 6765432
+              }
+            ],
+            "images": [
+              {
+                "id": 789124,
+                "url": "https://example.com/version_image1.jpg",
+                "width": 768,
+                "height": 1024,
+                "hash": "version_abc123",
+                "nsfw": false
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "totalItems": 1,
+      "currentPage": 1,
+      "pageSize": 20,
+      "totalPages": 1,
+      "nextCursor": null
+    }
+  },
+  "model_details": {
+    "id": 123456,
+    "name": "Test Anime Model",
+    "type": "Checkpoint",
+    "description": "A high-quality anime checkpoint model for generating beautiful characters",
+    "nsfw": false,
+    "allowNoCredit": true,
+    "allowCommercialUse": true,
+    "allowDerivatives": true,
+    "allowDifferentLicense": true,
+    "stats": {
+      "downloadCount": 15432,
+      "favoriteCount": 892,
+      "commentCount": 156,
+      "ratingCount": 234,
+      "rating": 4.8
+    },
+    "creator": {
+      "username": "test_creator",
+      "image": "https://example.com/avatar.jpg"
+    },
+    "tags": [
+      {"name": "anime"},
+      {"name": "character"},
+      {"name": "illustrious"},
+      {"name": "checkpoint"}
+    ],
+    "modelVersions": [
+      {
+        "id": 654321,
+        "name": "v1.0",
+        "description": "Initial release with high quality anime generation",
+        "baseModel": "Illustrious",
+        "createdAt": "2024-01-15T10:30:00Z",
+        "updatedAt": "2024-01-15T10:30:00Z",
+        "trainedWords": ["test_character", "anime_style"],
+        "files": [
+          {
+            "id": 987654,
+            "name": "testModel_v1.safetensors",
+            "type": "Model",
+            "metadata": {
+              "fp": "fp16",
+              "size": "full",
+              "format": "SafeTensor"
+            },
+            "hashes": {
+              "AutoV2": "abc123def456789",
+              "SHA256": "def456abc789123"
+            },
+            "downloadUrl": "https://civitai.com/api/download/models/654321",
+            "sizeKB": 6765432
+          },
+          {
+            "id": 987655,
+            "name": "testModel_v1_fp32.safetensors",
+            "type": "Model",
+            "metadata": {
+              "fp": "fp32",
+              "size": "full",
+              "format": "SafeTensor"
+            },
+            "hashes": {
+              "AutoV2": "xyz789abc123456",
+              "SHA256": "ghi123def789456"
+            },
+            "downloadUrl": "https://civitai.com/api/download/models/654321?type=Model&format=SafeTensor&size=full&fp=fp32",
+            "sizeKB": 13530864
+          }
+        ],
+        "images": [
+          {
+            "id": 789124,
+            "url": "https://example.com/version_image1.jpg",
+            "width": 768,
+            "height": 1024,
+            "hash": "version_abc123",
+            "nsfw": false,
+            "meta": {
+              "prompt": "test_character, anime_style, masterpiece",
+              "negativePrompt": "bad quality, worst quality",
+              "steps": 25,
+              "sampler": "DPM++ 2M Karras",
+              "cfgScale": 7.5
+            }
+          },
+          {
+            "id": 789125,
+            "url": "https://example.com/version_image2.jpg",
+            "width": 512,
+            "height": 768,
+            "hash": "version_def456",
+            "nsfw": false,
+            "meta": {
+              "prompt": "anime girl, test_character, detailed face",
+              "negativePrompt": "blurry, low quality",
+              "steps": 30,
+              "sampler": "Euler a",
+              "cfgScale": 8
+            }
+          }
+        ]
+      }
+    ],
+    "images": [
+      {
+        "id": 789123,
+        "url": "https://example.com/image1.jpg",
+        "width": 1024,
+        "height": 1024,
+        "hash": "abc123def456",
+        "nsfw": false,
+        "meta": {
+          "prompt": "anime girl, high quality, masterpiece",
+          "negativePrompt": "bad quality, blurry",
+          "steps": 20,
+          "sampler": "DPM++ 2M Karras",
+          "cfgScale": 7
+        }
+      }
+    ]
+  },
+  "version_details": {
+    "id": 654321,
+    "name": "v1.0",
+    "description": "Initial release with high quality anime generation",
+    "baseModel": "Illustrious",
+    "createdAt": "2024-01-15T10:30:00Z",
+    "updatedAt": "2024-01-15T10:30:00Z",
+    "trainedWords": ["test_character", "anime_style"],
+    "stats": {
+      "downloadCount": 15432,
+      "favoriteCount": 892,
+      "commentCount": 156,
+      "ratingCount": 234,
+      "rating": 4.8
+    },
+    "files": [
+      {
+        "id": 987654,
+        "name": "testModel_v1.safetensors",
+        "type": "Model",
+        "metadata": {
+          "fp": "fp16",
+          "size": "full",
+          "format": "SafeTensor"
+        },
+        "hashes": {
+          "AutoV2": "abc123def456789",
+          "SHA256": "def456abc789123"
+        },
+        "downloadUrl": "https://civitai.com/api/download/models/654321",
+        "sizeKB": 6765432
+      }
+    ],
+    "images": [
+      {
+        "id": 789124,
+        "url": "https://example.com/version_image1.jpg",
+        "width": 768,
+        "height": 1024,
+        "hash": "version_abc123",
+        "nsfw": false,
+        "meta": {
+          "prompt": "test_character, anime_style, masterpiece",
+          "negativePrompt": "bad quality, worst quality",
+          "steps": 25,
+          "sampler": "DPM++ 2M Karras",
+          "cfgScale": 7.5
+        }
+      }
+    ]
+  },
+  "error_responses": {
+    "unauthorized": {
+      "error": "Unauthorized",
+      "message": "Invalid API key"
+    },
+    "rate_limited": {
+      "error": "Too Many Requests",
+      "message": "Rate limit exceeded"
+    },
+    "not_found": {
+      "error": "Not Found",
+      "message": "Model not found"
+    },
+    "server_error": {
+      "error": "Internal Server Error",
+      "message": "An unexpected error occurred"
+    }
+  }
+}

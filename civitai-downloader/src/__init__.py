@@ -1,0 +1,1 @@
+"""CivitAI Downloader core package."""
