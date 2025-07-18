@@ -3,7 +3,7 @@
 import click
 import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable, Any
 
 from .config import ConfigManager
 from .utils import get_platform_info, ensure_app_dirs, format_file_size
@@ -13,6 +13,36 @@ from .preview import PreviewManager
 from .download import DownloadManager, ProgressDisplay
 from .storage import StorageManager, BackupManager
 from .interfaces import SearchParams, ModelType, SortOrder, ModelCategory, PeriodFilter, DownloadProgress
+
+
+def run_async(coro: Callable[..., Any]) -> Any:
+    """Safely run async function, handling existing event loops."""
+    try:
+        # Try to get the current event loop
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If loop is already running, we need to use a different approach
+            import concurrent.futures
+            import threading
+            
+            # Create a new event loop in a separate thread
+            def run_in_thread():
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    return new_loop.run_until_complete(coro())
+                finally:
+                    new_loop.close()
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(run_in_thread)
+                return future.result()
+        else:
+            # No running loop, safe to use asyncio.run
+            return asyncio.run(coro())
+    except RuntimeError:
+        # No current event loop, safe to use asyncio.run
+        return asyncio.run(coro())
 
 
 @click.group()
@@ -26,7 +56,7 @@ def cli(ctx):
 
 
 @cli.command()
-@click.argument('query', required=False)
+@click.option('--query', '-q', help='Search query')
 @click.option('--type', '-t', multiple=True, help='Filter by model type')
 @click.option('--tag', multiple=True, help='Filter by tags')
 @click.option('--category', '-c', multiple=True, help='Filter by categories')
@@ -49,10 +79,45 @@ def search(ctx, query: Optional[str], type, tag, category, base_model, sort, sor
             search_engine = ModelSearchEngine(api_client=api_client)
             
             # Convert CLI arguments to search parameters
-            types = [ModelType(t.upper()) for t in type] if type else None
-            categories = [ModelCategory(c.upper()) for c in category] if category else None
-            sort_order = SortOrder(sort.replace(' ', '_').upper()) if sort else SortOrder.HIGHEST_RATED
-            period_filter = PeriodFilter(period.upper()) if period else PeriodFilter.ALL_TIME
+            types = None
+            if type:
+                types = []
+                for t in type:
+                    try:
+                        types.append(ModelType[t.upper()])
+                    except KeyError:
+                        valid_types = [mt.name for mt in ModelType]
+                        click.echo(f"❌ Error: '{t}' is not a valid model type", err=True)
+                        click.echo(f"Valid types: {', '.join(valid_types)}", err=True)
+                        return
+            
+            categories = None
+            if category:
+                categories = []
+                for c in category:
+                    try:
+                        categories.append(ModelCategory[c.upper()])
+                    except KeyError:
+                        valid_categories = [mc.name for mc in ModelCategory]
+                        click.echo(f"❌ Error: '{c}' is not a valid category", err=True)
+                        click.echo(f"Valid categories: {', '.join(valid_categories)}", err=True)
+                        return
+            
+            try:
+                sort_order = SortOrder(sort.replace(' ', '_').upper()) if sort else SortOrder.HIGHEST_RATED
+            except ValueError:
+                valid_sorts = [so.value for so in SortOrder]
+                click.echo(f"❌ Error: '{sort}' is not a valid sort order", err=True)
+                click.echo(f"Valid sort orders: {', '.join(valid_sorts)}", err=True)
+                return
+            
+            try:
+                period_filter = PeriodFilter(period.upper()) if period else PeriodFilter.ALL_TIME
+            except ValueError:
+                valid_periods = [pf.value for pf in PeriodFilter]
+                click.echo(f"❌ Error: '{period}' is not a valid period", err=True)
+                click.echo(f"Valid periods: {', '.join(valid_periods)}", err=True)
+                return
             
             search_params = SearchParams(
                 query=query,
@@ -87,7 +152,7 @@ def search(ctx, query: Optional[str], type, tag, category, base_model, sort, sor
             except Exception as e:
                 click.echo(f"Search failed: {e}", err=True)
     
-    asyncio.run(_search())
+    run_async(_search)
 
 
 @cli.command()
@@ -176,7 +241,7 @@ def show(ctx, model_id: int, version: Optional[str], images: bool, license: bool
                 except Exception as e:
                     click.echo(f"Failed to get model details: {e}", err=True)
     
-    asyncio.run(_show())
+    run_async(_show)
 
 
 @cli.command()
@@ -229,7 +294,7 @@ def compare(ctx, model_ids: tuple, version: tuple):
                 except Exception as e:
                     click.echo(f"Comparison failed: {e}", err=True)
     
-    asyncio.run(_compare())
+    run_async(_compare)
 
 
 @cli.command()
@@ -352,18 +417,60 @@ def download(ctx, model_id: int, version: Optional[str], path: Optional[str], fi
                     click.echo(f"❌ Download failed: {e}", err=True)
                     raise
     
-    asyncio.run(_download())
+    run_async(_download)
 
 
 @cli.command()
 @click.option('--limit', '-l', type=int, default=10, help='Number of items to show')
+@click.option('--type', '-t', help='Filter by model type')
+@click.option('--sort', '-s', type=click.Choice(['date', 'name', 'size']), default='date', help='Sort order')
 @click.pass_context
-def list(ctx, limit: int):
+def list(ctx, limit: int, type: Optional[str], sort: str):
     """List download history."""
     config = ctx.obj['config']
+    storage_manager = StorageManager(config)
     
-    # TODO: Implement list functionality
-    click.echo(f"Showing last {limit} downloads")
+    # Get download history
+    if type:
+        models = storage_manager.get_models_by_type(type.upper())
+    else:
+        models = storage_manager.get_recently_downloaded(limit)
+    
+    if not models:
+        click.echo("No downloads found in history.")
+        return
+    
+    # Sort models if needed
+    if sort == 'name':
+        models.sort(key=lambda m: m.get('name', '').lower())
+    elif sort == 'size':
+        models.sort(key=lambda m: m.get('size_bytes', 0), reverse=True)
+    # Default is date (already sorted by recency)
+    
+    # Limit results
+    models = models[:limit]
+    
+    click.echo(f"📥 Download History ({len(models)} models):")
+    click.echo("=" * 70)
+    
+    for i, model in enumerate(models, 1):
+        click.echo(f"{i}. {model.get('name', 'Unknown')} (ID: {model.get('id', 'N/A')})")
+        click.echo(f"   Type: {model.get('type', 'Unknown')}")
+        click.echo(f"   Creator: {model.get('creator', 'Unknown')}")
+        click.echo(f"   Downloaded: {model.get('downloaded_at', 'Unknown')}")
+        
+        # Get file size if available
+        size_bytes = model.get('size_bytes', 0)
+        if size_bytes > 0:
+            size_mb = size_bytes / (1024 * 1024)
+            click.echo(f"   Size: {size_mb:.1f} MB")
+        
+        # Show local path
+        local_path = model.get('local_path')
+        if local_path:
+            click.echo(f"   Path: {local_path}")
+        
+        click.echo()
 
 
 @cli.group()
@@ -647,7 +754,10 @@ def cleanup_backups(ctx, keep: int):
 @cli.command()
 def version():
     """Show version and system information."""
-    from .. import __version__
+    try:
+        from .. import __version__
+    except ImportError:
+        __version__ = "0.1.0"  # Default version if import fails
     
     click.echo(f"CivitAI Downloader v{__version__}")
     click.echo("\nSystem information:")
@@ -659,7 +769,7 @@ def version():
 def main():
     """Main entry point."""
     try:
-        cli()
+        cli(prog_name='civitai')
     except KeyboardInterrupt:
         click.echo("\nOperation cancelled by user", err=True)
     except Exception as e:
