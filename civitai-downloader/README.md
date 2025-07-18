@@ -65,11 +65,11 @@ civitai-downloader/
 │   ├── config.py         # Configuration management
 │   ├── utils.py          # Cross-platform utilities
 │   ├── cli.py            # Command-line interface
-│   ├── api_client.py     # CivitAI API client (TODO)
-│   ├── search.py         # Search engine (TODO)
-│   ├── preview.py        # Preview manager (TODO)
-│   ├── download.py       # Download manager (TODO)
-│   └── storage.py        # Storage manager (TODO)
+│   ├── api_client.py     # CivitAI API client ✅
+│   ├── search.py         # Search engine ✅
+│   ├── preview.py        # Preview manager (planned)
+│   ├── download.py       # Download manager (planned)
+│   └── storage.py        # Storage manager (planned)
 ├── tests/                # Unit tests
 ├── docs/                 # Documentation
 ├── requirements.txt      # Python dependencies

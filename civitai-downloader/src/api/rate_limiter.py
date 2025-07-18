@@ -1,7 +1,6 @@
 """Rate limiting functionality for API calls."""
 
 import time
-from typing import Optional
 
 
 class RateLimiter:

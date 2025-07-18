@@ -7,6 +7,9 @@ from typing import Optional
 
 from .config import ConfigManager
 from .utils import get_platform_info, ensure_app_dirs
+from .api_client import CivitAIAPIClient
+from .search import ModelSearchEngine
+from .interfaces import SearchParams, ModelType, SortOrder
 
 
 @click.group()
@@ -32,14 +35,42 @@ def search(ctx, query: Optional[str], type, tag, base_model, sort, limit, nsfw):
     """Search for models on CivitAI."""
     config = ctx.obj['config']
     
-    # TODO: Implement search functionality
-    click.echo(f"Searching for: {query or 'all models'}")
-    if type:
-        click.echo(f"Types: {', '.join(type)}")
-    if tag:
-        click.echo(f"Tags: {', '.join(tag)}")
-    if base_model:
-        click.echo(f"Base models: {', '.join(base_model)}")
+    async def _search():
+        async with CivitAIAPIClient(config) as api_client:
+            search_engine = ModelSearchEngine(api_client=api_client)
+            
+            # Convert CLI arguments to search parameters
+            types = [ModelType(t.upper()) for t in type] if type else None
+            sort_order = SortOrder(sort.replace(' ', '_').upper()) if sort else SortOrder.HIGHEST_RATED
+            
+            search_params = SearchParams(
+                query=query,
+                types=types,
+                tags=list(tag) if tag else None,
+                base_models=list(base_model) if base_model else None,
+                sort=sort_order,
+                limit=limit or 20,
+                nsfw=nsfw
+            )
+            
+            try:
+                results = await search_engine.search(search_params)
+                
+                click.echo(f"Found {len(results)} models")
+                click.echo("=" * 50)
+                
+                for i, model in enumerate(results, 1):
+                    click.echo(f"{i}. {model.name} (ID: {model.id})")
+                    click.echo(f"   Type: {model.type.value}")
+                    click.echo(f"   Creator: {model.creator}")
+                    if model.tags:
+                        click.echo(f"   Tags: {', '.join(model.tags[:5])}")
+                    click.echo()
+                    
+            except Exception as e:
+                click.echo(f"Search failed: {e}", err=True)
+    
+    asyncio.run(_search())
 
 
 @cli.command()
@@ -51,12 +82,38 @@ def show(ctx, model_id: int, version: Optional[str], images: bool):
     """Show detailed information about a model."""
     config = ctx.obj['config']
     
-    # TODO: Implement show functionality
-    click.echo(f"Showing model {model_id}")
-    if version:
-        click.echo(f"Version: {version}")
-    if images:
-        click.echo("Showing preview images...")
+    async def _show():
+        async with CivitAIAPIClient(config) as api_client:
+            try:
+                model = await api_client.get_model_details(model_id)
+                
+                click.echo(f"Model: {model.name}")
+                click.echo(f"ID: {model.id}")
+                click.echo(f"Type: {model.type.value}")
+                click.echo(f"Creator: {model.creator}")
+                click.echo(f"Description: {model.description}")
+                click.echo(f"Tags: {', '.join(model.tags) if model.tags else 'None'}")
+                click.echo(f"Created: {model.created_at}")
+                click.echo(f"Updated: {model.updated_at}")
+                click.echo()
+                
+                # Get versions
+                versions = await api_client.get_model_versions(model_id)
+                click.echo(f"Versions ({len(versions)}):")
+                for v in versions:
+                    click.echo(f"  - {v.name} (ID: {v.id})")
+                    click.echo(f"    Base Model: {v.base_model}")
+                    if v.files:
+                        click.echo(f"    Files: {len(v.files)}")
+                        for file in v.files[:3]:  # Show first 3 files
+                            size_mb = file.size_bytes / (1024 * 1024)
+                            click.echo(f"      - {file.name} ({size_mb:.1f}MB)")
+                    click.echo()
+                    
+            except Exception as e:
+                click.echo(f"Failed to get model details: {e}", err=True)
+    
+    asyncio.run(_show())
 
 
 @cli.command()
@@ -69,12 +126,56 @@ def download(ctx, model_id: int, version: Optional[str], path: Optional[str], no
     """Download a model from CivitAI."""
     config = ctx.obj['config']
     
-    # TODO: Implement download functionality
-    click.echo(f"Downloading model {model_id}")
-    if version:
-        click.echo(f"Version: {version}")
-    download_path = path or config.config.download_path
-    click.echo(f"Download path: {download_path}")
+    async def _download():
+        async with CivitAIAPIClient(config) as api_client:
+            try:
+                # Get model details
+                model = await api_client.get_model_details(model_id)
+                click.echo(f"Model: {model.name}")
+                
+                # Get versions
+                versions = await api_client.get_model_versions(model_id)
+                if not versions:
+                    click.echo("No versions available", err=True)
+                    return
+                
+                # Select version
+                if version:
+                    selected_version = next((v for v in versions if v.name == version), None)
+                    if not selected_version:
+                        click.echo(f"Version '{version}' not found", err=True)
+                        return
+                else:
+                    selected_version = versions[0]  # Latest version
+                
+                click.echo(f"Version: {selected_version.name}")
+                
+                # Show files
+                if not selected_version.files:
+                    click.echo("No files available for download", err=True)
+                    return
+                
+                download_path = Path(path or config.config.download_path)
+                download_path.mkdir(parents=True, exist_ok=True)
+                
+                click.echo(f"Download path: {download_path}")
+                click.echo(f"Files to download: {len(selected_version.files)}")
+                
+                for file in selected_version.files:
+                    file_path = download_path / file.name
+                    size_mb = file.size_bytes / (1024 * 1024)
+                    click.echo(f"  - {file.name} ({size_mb:.1f}MB)")
+                    # TODO: Implement actual file download
+                    click.echo(f"    Would download to: {file_path}")
+                
+                if not no_metadata:
+                    # TODO: Save metadata
+                    click.echo("Metadata would be saved")
+                    
+            except Exception as e:
+                click.echo(f"Download failed: {e}", err=True)
+    
+    asyncio.run(_download())
 
 
 @cli.command()
