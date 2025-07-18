@@ -58,19 +58,20 @@ def cli(ctx):
 @cli.command()
 @click.option('--query', '-q', help='Search query')
 @click.option('--type', '-t', multiple=True, help='Filter by model type')
-@click.option('--tag', multiple=True, help='Filter by tags')
+@click.option('--tags', help='Filter by tags (comma-separated for multiple tags)')
 @click.option('--category', '-c', multiple=True, help='Filter by categories')
-@click.option('--base-model', '-b', multiple=True, help='Filter by base model')
+@click.option('--base-models', '-b', help='Filter by base model (comma-separated for multiple models)')
 @click.option('--sort', '-s', help='Sort order')
 @click.option('--sort-by', help='Custom sort field')
 @click.option('--period', '-p', help='Time period (AllTime, Year, Month, Week, Day)')
-@click.option('--limit', '-l', type=int, help='Number of results')
+@click.option('--limit', '-l', type=int, help='Maximum number of models to fetch (default: 100)')
+@click.option('--max-pages', type=int, help='Maximum number of pages to fetch (default: auto, use 0 for unlimited)')
 @click.option('--nsfw', is_flag=True, help='Include NSFW content')
 @click.option('--featured', is_flag=True, help='Only featured models')
 @click.option('--verified', is_flag=True, help='Only verified models')
 @click.option('--commercial', is_flag=True, help='Only commercial-use models')
 @click.pass_context
-def search(ctx, query: Optional[str], type, tag, category, base_model, sort, sort_by, period, limit, nsfw, featured, verified, commercial):
+def search(ctx, query: Optional[str], type, tags: Optional[str], category, base_models: Optional[str], sort, sort_by, period, limit, max_pages, nsfw, featured, verified, commercial):
     """Search for models on CivitAI."""
     config = ctx.obj['config']
     
@@ -104,7 +105,7 @@ def search(ctx, query: Optional[str], type, tag, category, base_model, sort, sor
                         return
             
             try:
-                sort_order = SortOrder(sort.replace(' ', '_').upper()) if sort else SortOrder.HIGHEST_RATED
+                sort_order = SortOrder(sort) if sort else SortOrder.HIGHEST_RATED
             except ValueError:
                 valid_sorts = [so.value for so in SortOrder]
                 click.echo(f"❌ Error: '{sort}' is not a valid sort order", err=True)
@@ -119,16 +120,36 @@ def search(ctx, query: Optional[str], type, tag, category, base_model, sort, sor
                 click.echo(f"Valid periods: {', '.join(valid_periods)}", err=True)
                 return
             
+            # Parse comma-separated tags
+            parsed_tags = None
+            if tags:
+                parsed_tags = [tag.strip() for tag in tags.split(',') if tag.strip()]
+            
+            # Parse comma-separated base models
+            parsed_base_models = None
+            if base_models:
+                parsed_base_models = [model.strip() for model in base_models.split(',') if model.strip()]
+            
+            # Validate limit parameter (minimum 1, but no upper limit for bulk downloads)
+            if limit is not None and limit < 1:
+                click.echo("❌ Error: limit must be at least 1", err=True)
+                return
+            
+            # Validate max_pages parameter
+            if max_pages is not None and max_pages < 0:
+                click.echo("❌ Error: max_pages must be at least 0 (0 for unlimited)", err=True)
+                return
+            
             search_params = SearchParams(
                 query=query,
                 types=types,
-                tags=list(tag) if tag else None,
+                tags=parsed_tags,
                 categories=categories,
-                base_models=list(base_model) if base_model else None,
+                base_models=parsed_base_models,
                 sort=sort_order,
                 sort_by=sort_by,
                 period=period_filter,
-                limit=limit or 20,
+                limit=limit or 100,
                 nsfw=nsfw,
                 featured=featured,
                 verified=verified,
@@ -136,7 +157,34 @@ def search(ctx, query: Optional[str], type, tag, category, base_model, sort, sor
             )
             
             try:
-                results = await search_engine.search(search_params)
+                target_limit = search_params.limit  # User's target model count
+                
+                if max_pages == 0:
+                    # Unlimited pages mode - fetch until target_limit is reached
+                    click.echo(f"🔄 Unlimited mode: fetching up to {target_limit} models...")
+                    results = await api_client.search_models_with_cursor(search_params, 0, target_limit)
+                elif max_pages is not None and max_pages > 1:
+                    # Multi-page mode
+                    click.echo(f"🔄 Multi-page mode: fetching up to {target_limit} models (max {max_pages} pages)...")
+                    results = await api_client.search_models_with_cursor(search_params, max_pages, target_limit)
+                elif max_pages == 1:
+                    # Single page mode
+                    click.echo(f"🔄 Single page mode: fetching up to {min(target_limit, 100)} models...")
+                    # Use single page API for efficiency
+                    search_params.limit = min(target_limit, 100)
+                    results = await search_engine.search(search_params)
+                else:
+                    # Default mode: determine best strategy based on target_limit
+                    if target_limit <= 100:
+                        # Single page is sufficient
+                        click.echo(f"🔄 Fetching {target_limit} models...")
+                        search_params.limit = target_limit
+                        results = await search_engine.search(search_params)
+                    else:
+                        # Need multiple pages
+                        pages_needed = (target_limit + 99) // 100  # Round up
+                        click.echo(f"🔄 Fetching {target_limit} models ({pages_needed} pages)...")
+                        results = await api_client.search_models_with_cursor(search_params, pages_needed, target_limit)
                 
                 click.echo(f"Found {len(results)} models")
                 click.echo("=" * 50)
@@ -245,10 +293,10 @@ def show(ctx, model_id: int, version: Optional[str], images: bool, license: bool
 
 
 @cli.command()
-@click.argument('model_ids', nargs=-1, type=int, required=True)
+@click.option('--model-id', '-m', multiple=True, type=int, required=True, help='Model IDs to compare')
 @click.option('--version', '-v', multiple=True, help='Specific versions to compare (format: model_id:version)')
 @click.pass_context
-def compare(ctx, model_ids: tuple, version: tuple):
+def compare(ctx, model_id: tuple, version: tuple):
     """Compare multiple models side by side."""
     config = ctx.obj['config']
     
@@ -266,14 +314,14 @@ def compare(ctx, model_ids: tuple, version: tuple):
                             version_map[int(model_id_str)] = version_name
                     
                     # Fetch all models
-                    for model_id in model_ids:
+                    for model_id_val in model_id:
                         try:
-                            model, versions = await preview_manager.get_model_details_with_versions(model_id)
+                            model, versions = await preview_manager.get_model_details_with_versions(model_id_val)
                             
                             # Find specific version if requested
                             selected_version = None
-                            if model_id in version_map:
-                                version_name = version_map[model_id]
+                            if model_id_val in version_map:
+                                version_name = version_map[model_id_val]
                                 for v in versions:
                                     if v.name == version_name or str(v.id) == version_name:
                                         selected_version = v
@@ -284,7 +332,7 @@ def compare(ctx, model_ids: tuple, version: tuple):
                             models_data.append((model, selected_version))
                             
                         except Exception as e:
-                            click.echo(f"Failed to fetch model {model_id}: {e}", err=True)
+                            click.echo(f"Failed to fetch model {model_id_val}: {e}", err=True)
                     
                     if models_data:
                         preview_manager.display_model_comparison(models_data)
@@ -768,8 +816,21 @@ def version():
 
 def main():
     """Main entry point."""
+    import sys
+    import os
+    
+    # Fix Click's argument parsing context for python -m execution
+    if len(sys.argv) > 0:
+        prog_name = os.path.basename(sys.argv[0])
+        if prog_name.endswith('.py') or prog_name in ['__main__.py', '-m']:
+            prog_name = 'civitai'
+            # Ensure sys.argv[0] is set correctly for Click
+            sys.argv[0] = 'civitai'
+    else:
+        prog_name = 'civitai'
+    
     try:
-        cli(prog_name='civitai')
+        cli(prog_name=prog_name)
     except KeyboardInterrupt:
         click.echo("\nOperation cancelled by user", err=True)
     except Exception as e:

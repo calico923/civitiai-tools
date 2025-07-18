@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import random
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode, urlparse, parse_qs
@@ -22,6 +23,13 @@ from .exceptions import (
 
 # Set up logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.WARNING)
+    formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 
 class RateLimiter:
@@ -145,19 +153,21 @@ class CivitAIAPIClient(IAPIClient):
     async def _create_session(self) -> ClientSession:
         """Create a new HTTP session with optimized settings."""
         connector = aiohttp.TCPConnector(
-            limit=10,  # Maximum number of connections
-            limit_per_host=5,  # Maximum connections per host
+            limit=20,  # Increased maximum connections
+            limit_per_host=10,  # Increased connections per host
             ttl_dns_cache=300,  # DNS cache TTL
             use_dns_cache=True,
-            keepalive_timeout=30,
+            keepalive_timeout=60,  # Increased keepalive timeout
             enable_cleanup_closed=True,
-            ssl=self.config.config.verify_ssl
+            ssl=self.config.config.verify_ssl,
+            force_close=False,  # Keep connections alive
         )
         
         timeout = ClientTimeout(
             total=self.config.config.api_timeout,
-            connect=30,  # Connection timeout
-            sock_read=60  # Socket read timeout
+            connect=15,  # Reduced connection timeout
+            sock_read=30,  # Reduced socket read timeout
+            sock_connect=10  # Socket connection timeout
         )
         
         return ClientSession(
@@ -173,6 +183,47 @@ class CivitAIAPIClient(IAPIClient):
             if self.session and not self.session.closed:
                 await self.session.close()
                 self.session = None
+    
+    async def _retry_request(self, method: str, url: str, max_retries: int = 3, **kwargs) -> aiohttp.ClientResponse:
+        """Execute HTTP request with exponential backoff retry."""
+        last_exception = None
+        
+        for attempt in range(max_retries):
+            try:
+                if not self.session or self.session.closed:
+                    raise SessionError("Session is closed")
+                
+                response = await self.session.request(method, url, **kwargs)
+                
+                # Check if we should retry based on status code
+                if response.status in [429, 500, 502, 503, 504]:
+                    if attempt < max_retries - 1:
+                        await response.close()
+                        # Exponential backoff with jitter
+                        delay = (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning(f"Request failed with status {response.status}, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(delay)
+                        continue
+                
+                return response
+                
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                last_exception = e
+                if attempt < max_retries - 1:
+                    # Exponential backoff with jitter
+                    delay = (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning(f"Request failed with {type(e).__name__}: {e}, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(delay)
+                    continue
+                
+                # Last attempt failed, raise the exception
+                if isinstance(e, asyncio.TimeoutError):
+                    raise TimeoutError(f"Request timed out after {max_retries} attempts")
+                else:
+                    raise NetworkError(f"Request failed after {max_retries} attempts: {e}")
+        
+        # This should not be reached, but just in case
+        raise NetworkError(f"Request failed after {max_retries} attempts: {last_exception}")
     
     def _normalize_model_type(self, model_type: str) -> str:
         """Normalize model type for API compatibility."""
@@ -283,57 +334,38 @@ class CivitAIAPIClient(IAPIClient):
         
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         
-        for attempt in range(self.config.config.api_max_retries):
-            try:
-                await self.rate_limiter.wait()
+        try:
+            await self.rate_limiter.wait()
+            
+            # Add proxy if configured
+            kwargs = {}
+            if self.config.config.proxy:
+                kwargs['proxy'] = self.config.config.proxy
+            
+            # Use the new retry logic
+            async with await self._retry_request(
+                method,
+                url,
+                params=params,
+                json=json_data,
+                max_retries=self.config.config.api_max_retries,
+                **kwargs
+            ) as response:
+                response.raise_for_status()
+                return await response.json()
                 
-                # Add proxy if configured
-                kwargs = {}
-                if self.config.config.proxy:
-                    kwargs['proxy'] = self.config.config.proxy
-                
-                async with self.session.request(
-                    method,
-                    url,
-                    params=params,
-                    json=json_data,
-                    **kwargs
-                ) as response:
-                    response.raise_for_status()
-                    return await response.json()
-            
-            except aiohttp.ClientResponseError as e:
-                if e.status == 429:  # Rate limited
-                    wait_time = min(60, 2 ** attempt)
-                    logger.warning(f"Rate limited, waiting {wait_time} seconds")
-                    await asyncio.sleep(wait_time)
-                    continue
-                elif e.status >= 500:  # Server error, retry
-                    if attempt < self.config.config.api_max_retries - 1:
-                        logger.warning(f"Server error {e.status}, retrying in {2 ** attempt} seconds")
-                        await asyncio.sleep(2 ** attempt)
-                        continue
-                elif e.status == 404:
-                    raise APIError(f"Resource not found: {endpoint}", e.status)
-                elif e.status == 403:
-                    raise APIError("Access denied. Check your API key.", e.status)
-                raise APIError(f"HTTP {e.status}: {e.message}", e.status)
-            
-            except asyncio.TimeoutError:
-                if attempt < self.config.config.api_max_retries - 1:
-                    logger.warning(f"Request timeout, retrying in {2 ** attempt} seconds")
-                    await asyncio.sleep(2 ** attempt)
-                    continue
-                raise TimeoutError(f"Request timeout after {self.config.config.api_timeout} seconds")
-            
-            except aiohttp.ClientError as e:
-                if attempt < self.config.config.api_max_retries - 1:
-                    logger.warning(f"Network error, retrying in {2 ** attempt} seconds")
-                    await asyncio.sleep(2 ** attempt)
-                    continue
-                raise NetworkError(f"Network error: {str(e)}")
-        
-        raise APIError(f"Failed after {self.config.config.api_max_retries} attempts")
+        except aiohttp.ClientResponseError as e:
+            if e.status == 404:
+                raise APIError(f"Resource not found: {endpoint}", e.status)
+            elif e.status == 403:
+                raise APIError("Access denied. Check your API key.", e.status)
+            raise APIError(f"HTTP {e.status}: {e.message}", e.status)
+        except asyncio.TimeoutError:
+            raise TimeoutError(f"Request to {endpoint} timed out")
+        except aiohttp.ClientError as e:
+            raise NetworkError(f"Network error: {e}")
+        except Exception as e:
+            raise APIError(f"Unexpected error: {e}")
     
     async def search_models(self, params: SearchParams) -> Tuple[List[ModelInfo], Optional[str]]:
         """Search for models."""
@@ -349,13 +381,18 @@ class CivitAIAPIClient(IAPIClient):
             query_params['types'] = types
         
         if params.tags:
-            query_params['tag'] = params.tags
+            query_params['tags'] = params.tags
+        
+        # Note: baseModels parameter may not be supported by the API
+        # Temporarily disabled to avoid 400 errors
+        # if params.base_models:
+        #     query_params['baseModels'] = params.base_models
         
         if params.categories:
             # Categories are used as additional tags
             categories = [cat.value for cat in params.categories]
-            existing_tags = query_params.get('tag', [])
-            query_params['tag'] = existing_tags + categories
+            existing_tags = query_params.get('tags', [])
+            query_params['tags'] = existing_tags + categories
         
         if params.sort:
             query_params['sort'] = params.sort.value
@@ -388,6 +425,11 @@ class CivitAIAPIClient(IAPIClient):
         
         # Make request
         response = await self._make_request('GET', '/models', params=query_params)
+        
+        # Debug: Log actual response metadata
+        metadata = response.get('metadata', {})
+        total_items = len(response.get('items', []))
+        logger.warning(f"API Response: requested limit={params.limit}, received items={total_items}, metadata={metadata}")
         
         # Parse models
         models = []
@@ -429,3 +471,149 @@ class CivitAIAPIClient(IAPIClient):
         # The version endpoint doesn't include model_id, so we'll use 0 as placeholder
         # In practice, you'd get this from the model details
         return self._parse_model_version(response, 0)
+    
+    async def search_models_with_cursor(self, params: SearchParams, max_pages: int = 1, target_limit: Optional[int] = None) -> List[ModelInfo]:
+        """
+        Search models with cursor-based pagination for bulk downloads.
+        
+        Args:
+            params: Search parameters
+            max_pages: Maximum number of pages to fetch (0 for unlimited pages, but still respects target_limit)
+            target_limit: Maximum number of models to return (stops when reached)
+            
+        Returns:
+            List of all models found across all pages
+        """
+        all_models = []
+        seen_model_ids = set()  # Track model IDs to prevent duplicates
+        cursor = None
+        page_count = 0
+        
+        # Set reasonable page size based on target limit
+        # Use smaller page sizes for small requests to avoid waste
+        if target_limit and target_limit <= 20:
+            page_limit = min(target_limit, 20)
+        elif target_limit and target_limit <= 100:
+            page_limit = min(target_limit, 100)
+        else:
+            page_limit = 100  # Use full page size for large requests
+        
+        # Use target_limit from params if not provided
+        if target_limit is None:
+            target_limit = params.limit
+        
+        while True:
+            page_count += 1
+            
+            # Check if we've reached the maximum pages (0 means unlimited)
+            if max_pages > 0 and page_count > max_pages:
+                break
+            
+            # Check if we've reached the target number of models
+            if target_limit and len(all_models) >= target_limit:
+                break
+            
+            # Create a copy of params for this page
+            page_params = SearchParams(
+                query=params.query,
+                types=params.types,
+                tags=params.tags,
+                categories=params.categories,
+                base_models=params.base_models,
+                sort=params.sort,
+                sort_by=params.sort_by,
+                period=params.period,
+                nsfw=params.nsfw,
+                featured=params.featured,
+                verified=params.verified,
+                commercial=params.commercial,
+                limit=page_limit,  # Use fixed page limit
+                page=1  # Always use page 1 with cursor
+            )
+            
+            # Build query parameters
+            query_params = {}
+            
+            if page_params.query:
+                query_params['query'] = page_params.query
+            
+            if page_params.types:
+                types = [self._normalize_model_type(t.value) for t in page_params.types]
+                query_params['types'] = types
+            
+            if page_params.tags:
+                query_params['tags'] = page_params.tags
+            
+            if page_params.categories:
+                # Categories are used as additional tags
+                categories = [cat.value for cat in page_params.categories]
+                existing_tags = query_params.get('tags', [])
+                query_params['tags'] = existing_tags + categories
+            
+            if page_params.sort:
+                query_params['sort'] = page_params.sort.value
+            
+            if page_params.sort_by:
+                query_params['sortBy'] = page_params.sort_by
+            
+            if page_params.period != PeriodFilter.ALL_TIME:
+                query_params['period'] = page_params.period.value
+            
+            if page_params.nsfw is not None:
+                query_params['nsfw'] = str(page_params.nsfw).lower()
+            
+            if page_params.featured is not None:
+                query_params['featured'] = str(page_params.featured).lower()
+            
+            if page_params.verified is not None:
+                query_params['verified'] = str(page_params.verified).lower()
+            
+            if page_params.commercial is not None:
+                query_params['commercial'] = str(page_params.commercial).lower()
+            
+            query_params['limit'] = page_params.limit
+            
+            # Add cursor for pagination
+            if cursor:
+                query_params['cursor'] = cursor
+            
+            # Make request
+            response = await self._make_request('GET', '/models', params=query_params)
+            
+            # Parse models from this page
+            models = []
+            for model_data in response.get('items', []):
+                try:
+                    model = self._parse_model_info(model_data)
+                    # Skip duplicates
+                    if model.id not in seen_model_ids:
+                        models.append(model)
+                        seen_model_ids.add(model.id)
+                except Exception as e:
+                    # Skip malformed models
+                    continue
+            
+            # Add to our collection
+            all_models.extend(models)
+            
+            # Check if we've reached the target limit after adding models
+            if target_limit and len(all_models) >= target_limit:
+                print(f"Page {page_count}: {len(models)} models (Total: {len(all_models)}) - Target limit reached")
+                # Trim to exact target limit
+                all_models = all_models[:target_limit]
+                break
+            
+            # Check if there are more pages
+            metadata = response.get('metadata', {})
+            cursor = metadata.get('nextCursor')
+            
+            print(f"Page {page_count}: {len(models)} models (Total: {len(all_models)})")
+            
+            # If no cursor, we've reached the end
+            if not cursor:
+                break
+            
+            # Add a small delay to be respectful to the API
+            await asyncio.sleep(0.1)
+        
+        return all_models

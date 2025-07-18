@@ -104,7 +104,10 @@ class ModelSearchEngine(ISearchEngine):
             all_models = await self.filter_by_base_model(all_models, params.base_models)
         
         # Apply 3-way filtering: categories × tags × types
-        if params.categories or params.tags or params.types:
+        # Note: Skip client-side filtering if API already filtered by tags or types
+        # (to avoid double filtering that reduces results)
+        # Only apply client-side filtering for categories (which are handled as additional tags)
+        if params.categories:
             all_models = self._apply_3way_filtering(all_models, params)
         
         # Apply pagination to final results

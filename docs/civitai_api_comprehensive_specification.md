@@ -47,8 +47,10 @@
 - **動作確認済み**: Checkpoint, LORA, LoCon
 
 #### `sort`
-- **テスト値**: Highest Rated, Most Downloaded, Most Liked, Newest
-- **動作確認済み**: Highest Rated, Most Downloaded, Most Liked, Newest
+- **テスト値**: Highest Rated, Most Downloaded, Most Liked, Most Discussed, Most Collected, Most Images, Newest, Oldest, Relevancy
+- **動作確認済み**: Highest Rated, Most Downloaded, Most Liked, Most Discussed, Most Collected, Most Images, Newest, Oldest, Relevancy
+- **未対応**: Most Buzz (WebUIでは利用可能だがAPI未対応)
+- **ページ依存**: Relevancy(検索ページ用), Most Images/Oldest(タグページ用)
 
 #### `period`
 - **テスト値**: AllTime, Year, Month, Week, Day
@@ -74,11 +76,17 @@
 - **テスト値**: anime model
 - **動作確認済み**: anime model
 
+#### `category`
+- **テスト値**: character, style, concept, background, poses, vehicle, clothing
+- **動作確認済み**: character, style, concept, background, poses, vehicle, clothing
+- **詳細**: 15種類のカテゴリ（action, animal, assets, background, base model, buildings, celebrity, character, clothing, concept, objects, poses, style, tool, vehicle）
+- **実装**: カテゴリは内部的にタグシステムを利用
+
 ### 高度検索機能
 
 以下の高度なパラメータが利用可能です:
 
-- **動作する高度パラメータ**: 21個
+- **動作する高度パラメータ**: 22個
 - 範囲検索 (minDownloads, maxDownloads)
 - 日付フィルタ (startDate, endDate)
 - 複数値指定 (types, tags, baseModels)
@@ -268,6 +276,7 @@ for model in models['items']:
 advanced_results = client.search_models(
     types='Checkpoint,LORA',
     tags='anime,style', 
+    category='character',
     baseModels='Illustrious,SDXL 1.0',
     minDownloads=1000,
     sort='Most Downloaded',

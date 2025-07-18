@@ -16,15 +16,14 @@ with open("requirements.txt", "r", encoding="utf-8") as f:
     ]
 
 setup(
-    name="civitai-downloader",
+    name="civitai_downloader",
     version="0.1.0",
     author="CivitAI Downloader Team",
     description="A multi-platform CLI tool for downloading AI models from CivitAI.com",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/yourusername/civitai-downloader",
-    packages=find_packages(where="src"),
-    package_dir={"": "src"},
+    packages=find_packages(include=["civitai_downloader", "civitai_downloader.*"]),
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
@@ -59,7 +58,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "civitai-dl=cli.main:cli",
+            "civitai=civitai_downloader.__main__:main",
         ],
     },
     include_package_data=True,
