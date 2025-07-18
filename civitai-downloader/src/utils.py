@@ -30,6 +30,11 @@ def get_app_dirs() -> dict:
     }
 
 
+def get_app_data_dir() -> Path:
+    """Get application data directory."""
+    return get_app_dirs()['data']
+
+
 def ensure_app_dirs() -> None:
     """Ensure application directories exist."""
     dirs = get_app_dirs()
@@ -87,6 +92,25 @@ def format_bytes(size_bytes: int) -> str:
             return f"{size_bytes:.2f} {unit}"
         size_bytes /= 1024.0
     return f"{size_bytes:.2f} PB"
+
+
+def format_file_size(size_bytes: int) -> str:
+    """Format file size in human-readable format."""
+    if size_bytes == 0:
+        return "0 B"
+    
+    units = ["B", "KB", "MB", "GB", "TB"]
+    unit_index = 0
+    size = float(size_bytes)
+    
+    while size >= 1024 and unit_index < len(units) - 1:
+        size /= 1024
+        unit_index += 1
+    
+    if unit_index == 0:
+        return f"{int(size)} {units[unit_index]}"
+    else:
+        return f"{size:.1f} {units[unit_index]}"
 
 
 def format_time(seconds: float) -> str:

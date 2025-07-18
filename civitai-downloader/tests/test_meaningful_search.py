@@ -208,21 +208,18 @@ class TestMeaningfulSearchEngine:
         mock_api_client = AsyncMock()
         
         async def search_with_params(params):
-            # Simulate similarity search - should match by type and tags
+            # Simulate similarity search - should search by type only
             target_model = realistic_models[0]  # Anime Portrait LORA
             
-            # Should search for same type and top tags
+            # Should search for same type only (no tags for similarity)
             assert params.types == [target_model.type]
-            assert params.tags == target_model.tags[:5]  # Top 5 tags
+            assert params.tags is None  # No tags in similarity search
             
-            # Return models with overlapping tags
+            # Return all models of the same type
             similar_models = []
             for model in realistic_models:
-                if model.id != target_model.id:  # Exclude original
-                    # Check for tag overlap
-                    overlap = set(model.tags) & set(target_model.tags)
-                    if overlap or model.type == target_model.type:
-                        similar_models.append(model)
+                if model.id != target_model.id and model.type == target_model.type:
+                    similar_models.append(model)
             
             return similar_models, None
         
@@ -239,12 +236,13 @@ class TestMeaningfulSearchEngine:
         # Should find the realistic portrait model (shares "portrait" tag)
         similar_ids = [m.id for m in similar]
         assert 2 in similar_ids  # Realistic Photo Style shares "portrait" tag
+        assert 4 in similar_ids  # NSFW Content Model is also LORA type
         
-        # Verify similarity logic - all should have overlapping tags or same type
-        for model in similar:
-            has_tag_overlap = bool(set(model.tags) & set(target_model.tags))
-            has_same_type = model.type == target_model.type
-            assert has_tag_overlap or has_same_type
+        # Verify similarity logic - should be sorted by tag overlap
+        # Model 2 should come before Model 4 (more tag overlap)
+        model_2_pos = similar_ids.index(2)
+        model_4_pos = similar_ids.index(4)
+        assert model_2_pos < model_4_pos  # Model 2 has more overlap (portrait)
     
     @pytest.mark.asyncio
     async def test_pagination_with_realistic_data_flow(self, realistic_models):

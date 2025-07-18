@@ -20,6 +20,7 @@ class Config:
     # Download settings
     download_path: Optional[str] = None
     concurrent_downloads: int = 1
+    max_concurrent_downloads: int = 3
     chunk_size: int = 8192  # 8KB chunks
     resume_downloads: bool = True
     verify_checksums: bool = True

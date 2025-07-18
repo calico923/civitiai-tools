@@ -176,19 +176,36 @@ class ModelSearchEngine(ISearchEngine):
     
     async def search_similar(self, model: ModelInfo, limit: int = 10) -> List[ModelInfo]:
         """Find similar models based on tags and type."""
-        # Search for models with similar tags
+        # For similarity search, we use a different approach:
+        # 1. Search by type only to get all models of the same type
+        # 2. Apply similarity logic client-side
+        
         if model.tags:
+            # Search by type only to get candidate models
             params = SearchParams(
                 types=[model.type],
-                tags=model.tags[:5],  # Use top 5 tags
-                limit=limit + 1,  # +1 to exclude self
+                limit=100,  # Get more candidates for similarity matching
                 nsfw=None  # Don't filter by NSFW for similar search
             )
             
             results = await self.search(params)
             
-            # Remove the original model from results
-            return [m for m in results if m.id != model.id][:limit]
+            # Apply similarity logic client-side
+            similar_models = []
+            for candidate in results:
+                if candidate.id != model.id:  # Exclude original
+                    # Check for tag overlap
+                    overlap = set(candidate.tags) & set(model.tags)
+                    if overlap:  # Any tag overlap makes it similar
+                        similar_models.append(candidate)
+            
+            # Sort by similarity score (number of overlapping tags)
+            similar_models.sort(
+                key=lambda m: len(set(m.tags) & set(model.tags)),
+                reverse=True
+            )
+            
+            return similar_models[:limit]
         else:
             # If no tags, search by type only
             params = SearchParams(

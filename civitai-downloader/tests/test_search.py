@@ -109,9 +109,9 @@ class TestModelSearchEngine:
         
         # Mock the search to return models with overlapping tags
         async def mock_search(params):
-            # Should search by type and tags
+            # Should search by type only (no tags for similarity)
             assert params.types == [mock_models[0].type]
-            assert params.tags == mock_models[0].tags[:5]  # Top 5 tags
+            assert params.tags is None  # No tags in similarity search
             
             # Return all models for similarity comparison
             return mock_models.copy(), None
