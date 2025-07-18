@@ -11,7 +11,7 @@ from aiohttp import ClientSession, ClientTimeout
 
 from .interfaces import (
     IAPIClient, ModelInfo, ModelVersion, ModelFile, ModelImage,
-    ModelType, SearchParams, SortOrder
+    ModelType, SearchParams, SortOrder, PeriodFilter, ModelCategory
 )
 from .config import ConfigManager
 
@@ -220,11 +220,32 @@ class CivitAIAPIClient(IAPIClient):
         if params.tags:
             query_params['tag'] = params.tags
         
+        if params.categories:
+            # Categories are used as additional tags
+            categories = [cat.value for cat in params.categories]
+            existing_tags = query_params.get('tag', [])
+            query_params['tag'] = existing_tags + categories
+        
         if params.sort:
             query_params['sort'] = params.sort.value
         
+        if params.sort_by:
+            query_params['sortBy'] = params.sort_by
+        
+        if params.period != PeriodFilter.ALL_TIME:
+            query_params['period'] = params.period.value
+        
         if params.nsfw is not None:
             query_params['nsfw'] = params.nsfw
+        
+        if params.featured is not None:
+            query_params['featured'] = params.featured
+        
+        if params.verified is not None:
+            query_params['verified'] = params.verified
+        
+        if params.commercial is not None:
+            query_params['commercial'] = params.commercial
         
         query_params['limit'] = params.limit
         

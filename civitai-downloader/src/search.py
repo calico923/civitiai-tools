@@ -5,7 +5,7 @@ from typing import List, Optional, Set
 
 from .interfaces import (
     ISearchEngine, IAPIClient, ModelInfo, ModelVersion,
-    SearchParams, ModelType
+    SearchParams, ModelType, ModelCategory, PeriodFilter
 )
 from .api_client import CivitAIAPIClient
 from .config import ConfigManager
@@ -50,8 +50,14 @@ class ModelSearchEngine(ISearchEngine):
                     types=params.types,
                     tags=params.tags,
                     base_models=[base_model],
+                    categories=params.categories,
                     sort=params.sort,
+                    sort_by=params.sort_by,
+                    period=params.period,
                     nsfw=params.nsfw,
+                    featured=params.featured,
+                    verified=params.verified,
+                    commercial=params.commercial,
                     limit=params.limit,
                     page=params.page
                 )
@@ -78,8 +84,14 @@ class ModelSearchEngine(ISearchEngine):
                     types=params.types,
                     tags=params.tags,
                     base_models=params.base_models,
+                    categories=params.categories,
                     sort=params.sort,
+                    sort_by=params.sort_by,
+                    period=params.period,
                     nsfw=params.nsfw,
+                    featured=params.featured,
+                    verified=params.verified,
+                    commercial=params.commercial,
                     limit=params.limit,
                     page=current_page
                 )
@@ -91,11 +103,39 @@ class ModelSearchEngine(ISearchEngine):
         if params.base_models:
             all_models = await self.filter_by_base_model(all_models, params.base_models)
         
+        # Apply 3-way filtering: categories × tags × types
+        if params.categories or params.tags or params.types:
+            all_models = self._apply_3way_filtering(all_models, params)
+        
         # Apply pagination to final results
         start_idx = (params.page - 1) * params.limit
         end_idx = start_idx + params.limit
         
         return all_models[start_idx:end_idx]
+    
+    def _apply_3way_filtering(self, models: List[ModelInfo], params: SearchParams) -> List[ModelInfo]:
+        """Apply 3-way filtering: categories × tags × types."""
+        filtered_models = []
+        
+        for model in models:
+            # Check type filter
+            if params.types and model.type not in params.types:
+                continue
+            
+            # Check category filter (categories are treated as tags)
+            if params.categories:
+                category_tags = [cat.value for cat in params.categories]
+                if not any(tag in model.tags for tag in category_tags):
+                    continue
+            
+            # Check tag filter (AND logic - all specified tags must be present)
+            if params.tags:
+                if not all(any(tag.lower() in model_tag.lower() for model_tag in model.tags) for tag in params.tags):
+                    continue
+            
+            filtered_models.append(model)
+        
+        return filtered_models
     
     async def filter_by_base_model(self, models: List[ModelInfo], base_models: List[str]) -> List[ModelInfo]:
         """Filter models by base model (client-side)."""

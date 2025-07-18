@@ -9,7 +9,7 @@ from .config import ConfigManager
 from .utils import get_platform_info, ensure_app_dirs
 from .api_client import CivitAIAPIClient
 from .search import ModelSearchEngine
-from .interfaces import SearchParams, ModelType, SortOrder
+from .interfaces import SearchParams, ModelType, SortOrder, ModelCategory, PeriodFilter
 
 
 @click.group()
@@ -26,12 +26,18 @@ def cli(ctx):
 @click.argument('query', required=False)
 @click.option('--type', '-t', multiple=True, help='Filter by model type')
 @click.option('--tag', multiple=True, help='Filter by tags')
+@click.option('--category', '-c', multiple=True, help='Filter by categories')
 @click.option('--base-model', '-b', multiple=True, help='Filter by base model')
 @click.option('--sort', '-s', help='Sort order')
+@click.option('--sort-by', help='Custom sort field')
+@click.option('--period', '-p', help='Time period (AllTime, Year, Month, Week, Day)')
 @click.option('--limit', '-l', type=int, help='Number of results')
 @click.option('--nsfw', is_flag=True, help='Include NSFW content')
+@click.option('--featured', is_flag=True, help='Only featured models')
+@click.option('--verified', is_flag=True, help='Only verified models')
+@click.option('--commercial', is_flag=True, help='Only commercial-use models')
 @click.pass_context
-def search(ctx, query: Optional[str], type, tag, base_model, sort, limit, nsfw):
+def search(ctx, query: Optional[str], type, tag, category, base_model, sort, sort_by, period, limit, nsfw, featured, verified, commercial):
     """Search for models on CivitAI."""
     config = ctx.obj['config']
     
@@ -41,16 +47,24 @@ def search(ctx, query: Optional[str], type, tag, base_model, sort, limit, nsfw):
             
             # Convert CLI arguments to search parameters
             types = [ModelType(t.upper()) for t in type] if type else None
+            categories = [ModelCategory(c.upper()) for c in category] if category else None
             sort_order = SortOrder(sort.replace(' ', '_').upper()) if sort else SortOrder.HIGHEST_RATED
+            period_filter = PeriodFilter(period.upper()) if period else PeriodFilter.ALL_TIME
             
             search_params = SearchParams(
                 query=query,
                 types=types,
                 tags=list(tag) if tag else None,
+                categories=categories,
                 base_models=list(base_model) if base_model else None,
                 sort=sort_order,
+                sort_by=sort_by,
+                period=period_filter,
                 limit=limit or 20,
-                nsfw=nsfw
+                nsfw=nsfw,
+                featured=featured,
+                verified=verified,
+                commercial=commercial
             )
             
             try:

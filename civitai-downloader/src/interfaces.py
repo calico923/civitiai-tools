@@ -28,10 +28,40 @@ class SortOrder(Enum):
     HIGHEST_RATED = "Highest Rated"
     MOST_DOWNLOADED = "Most Downloaded"
     MOST_LIKED = "Most Liked"
+    NEWEST = "Newest"
     MOST_DISCUSSED = "Most Discussed"
     MOST_COLLECTED = "Most Collected"
     MOST_BUZZ = "Most Buzz"
-    NEWEST = "Newest"
+    MOST_IMAGES = "Most Images"
+    OLDEST = "Oldest"
+
+
+class PeriodFilter(Enum):
+    """Available time periods for filtering."""
+    ALL_TIME = "AllTime"
+    YEAR = "Year"
+    MONTH = "Month"
+    WEEK = "Week"
+    DAY = "Day"
+
+
+class ModelCategory(Enum):
+    """Available model categories."""
+    CHARACTER = "character"
+    STYLE = "style"
+    CONCEPT = "concept"
+    CLOTHING = "clothing"
+    TOOL = "tool"
+    BUILDING = "building"
+    VEHICLE = "vehicle"
+    ANIMAL = "animal"
+    BACKGROUND = "background"
+    OBJECT = "object"
+    CELEBRITY = "celebrity"
+    ACTION = "action"
+    POSE = "pose"
+    COMPOSITION = "composition"
+    FANTASY = "fantasy"
 
 
 @dataclass
@@ -96,8 +126,14 @@ class SearchParams:
     types: Optional[List[ModelType]] = None
     tags: Optional[List[str]] = None
     base_models: Optional[List[str]] = None
+    categories: Optional[List[ModelCategory]] = None
     sort: SortOrder = SortOrder.HIGHEST_RATED
+    sort_by: Optional[str] = None  # Custom field for sorting
+    period: PeriodFilter = PeriodFilter.ALL_TIME
     nsfw: Optional[bool] = None
+    featured: Optional[bool] = None
+    verified: Optional[bool] = None
+    commercial: Optional[bool] = None
     limit: int = 20
     page: int = 1
 

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import time
 
 from src.search import ModelSearchEngine, SearchCache, CachedSearchEngine
-from src.interfaces import SearchParams, ModelType, SortOrder, ModelInfo
+from src.interfaces import SearchParams, ModelType, SortOrder, ModelInfo, ModelCategory, PeriodFilter
 from src.config import ConfigManager
 
 
@@ -398,3 +398,306 @@ class TestMeaningfulSearchCache:
         assert api_call_count == 2  # Still only 2 API calls
         assert cached_first[0].name == "First Model"
         assert cached_second[0].name == "Second Model"
+
+
+class TestTask3AdditionalFeatures:
+    """Tests for Task 3 additional features: categories, 3-way filtering, extended parameters."""
+    
+    @pytest.fixture
+    def diverse_models(self):
+        """Create diverse model data for testing complex filtering scenarios."""
+        return [
+            ModelInfo(
+                id=1, name="Anime Character LORA", type=ModelType.LORA, description="Anime character model",
+                tags=["anime", "character", "style", "portrait"], creator="user1", stats={"downloads": 100},
+                nsfw=False, created_at=datetime.now(), updated_at=datetime.now()
+            ),
+            ModelInfo(
+                id=2, name="Realistic Character Style", type=ModelType.LORA, description="Realistic character style",
+                tags=["realistic", "character", "photography", "portrait"], creator="user2", stats={"downloads": 200},
+                nsfw=False, created_at=datetime.now(), updated_at=datetime.now()
+            ),
+            ModelInfo(
+                id=3, name="Fantasy Concept Art", type=ModelType.CHECKPOINT, description="Fantasy concept art",
+                tags=["fantasy", "concept", "magic", "art"], creator="user3", stats={"downloads": 150},
+                nsfw=False, created_at=datetime.now(), updated_at=datetime.now()
+            ),
+            ModelInfo(
+                id=4, name="Style Transfer Tool", type=ModelType.LORA, description="Style transfer tool",
+                tags=["style", "tool", "transfer", "art"], creator="user4", stats={"downloads": 80},
+                nsfw=False, created_at=datetime.now(), updated_at=datetime.now()
+            ),
+            ModelInfo(
+                id=5, name="Character Concept Mix", type=ModelType.CHECKPOINT, description="Character concept mix",
+                tags=["character", "concept", "mix", "versatile"], creator="user5", stats={"downloads": 300},
+                nsfw=False, created_at=datetime.now(), updated_at=datetime.now()
+            )
+        ]
+    
+    @pytest.mark.asyncio
+    async def test_3way_filtering_complex_scenarios(self, mock_config, diverse_models):
+        """Test 3-way filtering with complex real-world scenarios."""
+        mock_api_client = AsyncMock()
+        mock_api_client.search_models.return_value = (diverse_models, None)
+        
+        engine = ModelSearchEngine(api_client=mock_api_client)
+        
+        # Test 1: Category + Type filtering (should find character LORAs)
+        params = SearchParams(
+            categories=[ModelCategory.CHARACTER],
+            types=[ModelType.LORA],
+            limit=10
+        )
+        results = await engine.search(params)
+        
+        # Should find models with "character" tag AND LORA type
+        assert len(results) == 2  # Models 1 and 2
+        assert all(result.type == ModelType.LORA for result in results)
+        assert all("character" in result.tags for result in results)
+        
+        # Test 2: Category + Tag filtering (character + style)
+        params = SearchParams(
+            categories=[ModelCategory.CHARACTER],
+            tags=["style"],
+            limit=10
+        )
+        results = await engine.search(params)
+        
+        # Should find models with both "character" AND "style" tags
+        assert len(results) == 1  # Only Model 1 has both character and style
+        assert results[0].id == 1  # Should be the anime character model
+        assert all("character" in result.tags and "style" in result.tags for result in results)
+        
+        # Test 3: All three filters (category + tags + type)
+        params = SearchParams(
+            categories=[ModelCategory.CHARACTER],
+            tags=["portrait"],
+            types=[ModelType.LORA],
+            limit=10
+        )
+        results = await engine.search(params)
+        
+        # Should find models with "character" tag, "portrait" tag, AND LORA type
+        assert len(results) == 2  # Models 1 and 2 both have character, portrait, and are LORA
+        assert all(result.type == ModelType.LORA for result in results)
+        assert all("character" in result.tags and "portrait" in result.tags for result in results)
+        
+        # Test 4: Multiple categories
+        params = SearchParams(
+            categories=[ModelCategory.CHARACTER, ModelCategory.CONCEPT],
+            types=[ModelType.CHECKPOINT],
+            limit=10
+        )
+        results = await engine.search(params)
+        
+        # Should find checkpoints with either "character" OR "concept" tags
+        assert len(results) == 2  # Models 3 and 5
+        assert all(result.type == ModelType.CHECKPOINT for result in results)
+        assert all("character" in result.tags or "concept" in result.tags for result in results)
+    
+    @pytest.mark.asyncio
+    async def test_3way_filtering_edge_cases(self, mock_config, diverse_models):
+        """Test edge cases in 3-way filtering."""
+        mock_api_client = AsyncMock()
+        mock_api_client.search_models.return_value = (diverse_models, None)
+        
+        engine = ModelSearchEngine(api_client=mock_api_client)
+        
+        # Test: No matches scenario
+        params = SearchParams(
+            categories=[ModelCategory.CHARACTER],
+            tags=["nonexistent"],
+            types=[ModelType.LORA],
+            limit=10
+        )
+        results = await engine.search(params)
+        assert len(results) == 0
+        
+        # Test: Type filter excludes everything
+        params = SearchParams(
+            categories=[ModelCategory.CHARACTER],
+            types=[ModelType.CONTROLNET],  # No CONTROLNET models in test data
+            limit=10
+        )
+        results = await engine.search(params)
+        assert len(results) == 0
+        
+        # Test: Single very specific filter
+        params = SearchParams(
+            tags=["versatile"],  # Only model 5 has this tag
+            limit=10
+        )
+        results = await engine.search(params)
+        assert len(results) == 1
+        assert results[0].id == 5
+    
+    @pytest.mark.asyncio
+    async def test_category_to_tag_conversion(self, mock_config):
+        """Test that categories are properly converted to tags for API calls."""
+        mock_api_client = AsyncMock()
+        mock_api_client.search_models.return_value = ([], None)
+        
+        engine = ModelSearchEngine(api_client=mock_api_client)
+        
+        # Test category conversion
+        params = SearchParams(
+            categories=[ModelCategory.CHARACTER, ModelCategory.STYLE],
+            tags=["existing_tag"],
+            limit=10
+        )
+        
+        await engine.search(params)
+        
+        # Verify API was called with categories as additional tags
+        call_args = mock_api_client.search_models.call_args[0][0]
+        assert call_args.categories == [ModelCategory.CHARACTER, ModelCategory.STYLE]
+        assert call_args.tags == ["existing_tag"]
+    
+    @pytest.mark.asyncio
+    async def test_period_filtering_with_realistic_behavior(self, mock_config):
+        """Test period filtering with realistic API behavior simulation."""
+        mock_api_client = AsyncMock()
+        
+        # Simulate different results for different periods
+        def period_sensitive_search(params):
+            if params.period == PeriodFilter.DAY:
+                return [ModelInfo(id=1, name="Recent Model", type=ModelType.LORA, description="Recent", 
+                                tags=["recent"], creator="user", stats={}, nsfw=False, 
+                                created_at=datetime.now(), updated_at=datetime.now())], None
+            elif params.period == PeriodFilter.YEAR:
+                return [ModelInfo(id=i, name=f"Model {i}", type=ModelType.LORA, description=f"Model {i}", 
+                                tags=[f"tag{i}"], creator="user", stats={}, nsfw=False, 
+                                created_at=datetime.now(), updated_at=datetime.now()) for i in range(1, 4)], None
+            else:
+                return [], None
+        
+        mock_api_client.search_models.side_effect = period_sensitive_search
+        engine = ModelSearchEngine(api_client=mock_api_client)
+        
+        # Test DAY period
+        params = SearchParams(period=PeriodFilter.DAY, limit=10)
+        results = await engine.search(params)
+        assert len(results) == 1
+        assert results[0].name == "Recent Model"
+        
+        # Test YEAR period
+        params = SearchParams(period=PeriodFilter.YEAR, limit=10)
+        results = await engine.search(params)
+        assert len(results) == 3
+        
+        # Test ALL_TIME period (should not pass period to API)
+        params = SearchParams(period=PeriodFilter.ALL_TIME, limit=10)
+        results = await engine.search(params)
+        assert len(results) == 0  # Returns empty for unhandled periods
+    
+    @pytest.mark.asyncio
+    async def test_advanced_parameters_combination_effects(self, mock_config):
+        """Test how advanced parameters affect results when combined."""
+        mock_api_client = AsyncMock()
+        
+        # Create models with different attributes
+        all_models = [
+            ModelInfo(id=1, name="Featured Model", type=ModelType.LORA, description="Featured", 
+                     tags=["featured"], creator="verified_user", stats={"downloads": 1000}, 
+                     nsfw=False, created_at=datetime.now(), updated_at=datetime.now()),
+            ModelInfo(id=2, name="Verified Model", type=ModelType.LORA, description="Verified", 
+                     tags=["verified"], creator="verified_user", stats={"downloads": 500}, 
+                     nsfw=False, created_at=datetime.now(), updated_at=datetime.now()),
+            ModelInfo(id=3, name="Commercial Model", type=ModelType.LORA, description="Commercial", 
+                     tags=["commercial"], creator="commercial_user", stats={"downloads": 800}, 
+                     nsfw=False, created_at=datetime.now(), updated_at=datetime.now()),
+            ModelInfo(id=4, name="Regular Model", type=ModelType.LORA, description="Regular", 
+                     tags=["regular"], creator="regular_user", stats={"downloads": 200}, 
+                     nsfw=False, created_at=datetime.now(), updated_at=datetime.now())
+        ]
+        
+        def parameter_sensitive_search(params):
+            results = all_models.copy()
+            
+            # Simulate filtering based on advanced parameters
+            if params.featured:
+                results = [m for m in results if "featured" in m.tags]
+            if params.verified:
+                results = [m for m in results if "verified" in m.tags or "verified_user" in m.creator]
+            if params.commercial:
+                results = [m for m in results if "commercial" in m.tags or "commercial_user" in m.creator]
+            
+            return results, None
+        
+        mock_api_client.search_models.side_effect = parameter_sensitive_search
+        engine = ModelSearchEngine(api_client=mock_api_client)
+        
+        # Test featured only
+        params = SearchParams(featured=True, limit=10)
+        results = await engine.search(params)
+        assert len(results) == 1
+        assert results[0].name == "Featured Model"
+        
+        # Test verified only
+        params = SearchParams(verified=True, limit=10)
+        results = await engine.search(params)
+        assert len(results) == 2  # Featured and Verified models have verified creators
+        
+        # Test combination (featured AND verified)
+        params = SearchParams(featured=True, verified=True, limit=10)
+        results = await engine.search(params)
+        assert len(results) == 1  # Only featured model matches both criteria
+        assert results[0].name == "Featured Model"
+    
+    @pytest.mark.asyncio
+    async def test_sort_order_actual_behavior(self, mock_config):
+        """Test that sort orders actually affect result ordering."""
+        mock_api_client = AsyncMock()
+        
+        # Create models with different stats for sorting
+        test_models = [
+            ModelInfo(id=1, name="High Downloads", type=ModelType.LORA, description="Popular", 
+                     tags=["popular"], creator="user1", stats={"downloadCount": 5000, "favoriteCount": 100}, 
+                     nsfw=False, created_at=datetime.now() - timedelta(days=30), updated_at=datetime.now()),
+            ModelInfo(id=2, name="Recent Model", type=ModelType.LORA, description="New", 
+                     tags=["new"], creator="user2", stats={"downloadCount": 500, "favoriteCount": 200}, 
+                     nsfw=False, created_at=datetime.now() - timedelta(days=1), updated_at=datetime.now()),
+            ModelInfo(id=3, name="High Favorites", type=ModelType.LORA, description="Liked", 
+                     tags=["liked"], creator="user3", stats={"downloadCount": 1000, "favoriteCount": 800}, 
+                     nsfw=False, created_at=datetime.now() - timedelta(days=15), updated_at=datetime.now())
+        ]
+        
+        def sort_sensitive_search(params):
+            results = test_models.copy()
+            
+            # Simulate sorting based on sort order
+            if params.sort == SortOrder.MOST_DOWNLOADED:
+                results.sort(key=lambda m: m.stats.get("downloadCount", 0), reverse=True)
+            elif params.sort == SortOrder.MOST_LIKED:
+                results.sort(key=lambda m: m.stats.get("favoriteCount", 0), reverse=True)
+            elif params.sort == SortOrder.NEWEST:
+                results.sort(key=lambda m: m.created_at, reverse=True)
+            elif params.sort == SortOrder.OLDEST:
+                results.sort(key=lambda m: m.created_at, reverse=False)
+            
+            return results, None
+        
+        mock_api_client.search_models.side_effect = sort_sensitive_search
+        engine = ModelSearchEngine(api_client=mock_api_client)
+        
+        # Test MOST_DOWNLOADED
+        params = SearchParams(sort=SortOrder.MOST_DOWNLOADED, limit=10)
+        results = await engine.search(params)
+        assert results[0].name == "High Downloads"  # Should be first
+        assert results[0].stats["downloadCount"] == 5000
+        
+        # Test MOST_LIKED
+        params = SearchParams(sort=SortOrder.MOST_LIKED, limit=10)
+        results = await engine.search(params)
+        assert results[0].name == "High Favorites"  # Should be first
+        assert results[0].stats["favoriteCount"] == 800
+        
+        # Test NEWEST
+        params = SearchParams(sort=SortOrder.NEWEST, limit=10)
+        results = await engine.search(params)
+        assert results[0].name == "Recent Model"  # Should be first (most recent)
+        
+        # Test OLDEST
+        params = SearchParams(sort=SortOrder.OLDEST, limit=10)
+        results = await engine.search(params)
+        assert results[0].name == "High Downloads"  # Should be first (oldest)
