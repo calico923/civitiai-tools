@@ -103,6 +103,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
 .venv
 env/
 venv/
@@ -128,9 +129,6 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Project specific
-outputs/
-
 # IDE
 .vscode/
 .idea/
@@ -143,3 +141,61 @@ Thumbs.db
 
 # Node modules (if any JS tooling is added)
 node_modules/
+
+# ===========================
+# Project specific ignores
+# ===========================
+
+# Failed first implementation (reference only)
+1st-coding/
+
+# Pre-research outputs (already collected data)
+pre-research/outputs/
+pre-research/temp_scripts/
+pre-research/test_images/
+
+# Research results (keep investigation scripts)
+# Note: Keep pre-research/investigations/ and pre-research/scripts/ for reference
+
+# Temporary and debug files
+*.tmp
+*.temp
+*.bak
+debug_*/
+test_*.log
+
+# Output directories (will be managed by new implementation)
+outputs/
+downloads/
+models/
+
+# Cache directories
+.cache/
+__cache__/
+
+# Configuration overrides (keep example files)
+config.local.yaml
+config.local.json
+settings.local.*
+
+# API keys and secrets (already in .env)
+# .env is already ignored above
+
+# Large data files
+*.csv
+*.json
+*.yaml
+!*example*.csv
+!*example*.json
+!*example*.yaml
+!requirements*.txt
+!pyproject.toml
+!setup.py
+
+# Exclude large investigation results but keep important docs
+/docs/*.csv
+/docs/*.json
+!/docs/*.md
+
+# Claude artifacts
+.claude/

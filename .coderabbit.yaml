@@ -51,16 +51,17 @@ language_model:
 
 # Python-specific review guidelines
 knowledge_base:
-  - "Review Python code following PEP 8 style guide"
-  - "Check for proper type hints in function signatures"
-  - "Ensure proper error handling with try-except blocks"
-  - "Verify docstrings follow Google or NumPy style"
-  - "Check for security issues like SQL injection, path traversal"
-  - "Validate proper use of async/await patterns"
-  - "Ensure pytest conventions are followed in test files"
-  - "Check for proper use of context managers (with statements)"
-  - "Verify no hardcoded secrets or API keys"
-  - "Ensure proper logging practices"
+  guidelines:
+    - "Review Python code following PEP 8 style guide"
+    - "Check for proper type hints in function signatures"
+    - "Ensure proper error handling with try-except blocks"
+    - "Verify docstrings follow Google or NumPy style"
+    - "Check for security issues like SQL injection, path traversal"
+    - "Validate proper use of async/await patterns"
+    - "Ensure pytest conventions are followed in test files"
+    - "Check for proper use of context managers (with statements)"
+    - "Verify no hardcoded secrets or API keys"
+    - "Ensure proper logging practices"
 
 # Additional rules
 early_access: false
