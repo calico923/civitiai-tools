@@ -1,14 +1,36 @@
-# Core dependencies
+# CivitAI Tools - Development Dependencies
+
+# HTTP Client for API requests
+aiohttp>=3.9.0
 requests>=2.31.0
+
+# CLI Framework
 click>=8.1.0
-rich>=13.0.0
-python-dotenv>=1.0.0
-pydantic>=2.0.0
 
-# Development dependencies
+# Data Processing
+pydantic>=2.5.0
+python-dateutil>=2.8.0
+
+# File formats
+PyYAML>=6.0
+pandas>=2.0.0
+
+# Testing
 pytest>=7.4.0
+pytest-asyncio>=0.21.0
 pytest-cov>=4.1.0
-pytest-mock>=3.11.0
 
-# Optional dependencies
-pytest-watch>=4.2.0  # For watch mode during development
+# Development tools
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.7.0
+
+# Documentation
+markdown>=3.5.0
+
+# Progress bars
+tqdm>=4.66.0
+rich>=13.7.0
+
+# Configuration
+platformdirs>=4.0.0
