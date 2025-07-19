@@ -1,185 +1,107 @@
-# CivitAI Tools
+# CivitAI Downloader v2
 
-CivitAIのAPIを活用したモデル分析・収集ツールセットです。モデルの検索、詳細情報取得、ランキング生成などの機能を提供します。
+CivitAI.comから効率的にAIモデルをダウンロードするための次世代Pythonアプリケーション
 
 ## 🎯 プロジェクト概要
 
-CivitAI Toolsは、CivitAI.comのAIモデルを効率的に検索・分析するためのPythonツールセットです。主に以下の機能を提供します：
+CivitAI Downloader v2は、大規模データセット処理、セキュリティ、パフォーマンスを重視して設計された、クリーンアーキテクチャベースのダウンローダーです。
 
-- **モデル検索**: タグ、タイプ、ソート順での包括的検索
-- **詳細メトリクス収集**: 個別モデルAPIからの詳細情報取得
-- **ランキングシステム**: 重み付きスコアによる品質評価
-- **データ分析**: 統計情報の生成とビジュアルレポート作成
+### 主な特徴
 
-## ✨ 主要機能
-
-### 1. 包括的モデル検索
-- カーソルベースページネーションで完全なデータ取得
-- タイプ別検索（Checkpoint、LoRA、LyCORIS）
-- タグベース検索（style、anime、nsfw等）
-- 複数ソート順対応（人気順、ダウンロード数順等）
-
-### 2. 詳細メトリクス収集
-- いいね数、コメント数、お気に入り数
-- エンゲージメントスコアの計算
-- ベースモデルタグの検証
-
-### 3. ランキングシステム
-- 重み付きスコアリング（いいね40%、DL30%、エンゲージメント20%、コメント10%）
-- 殿堂入りシステム（突出したモデルの別枠表彰）
-- HTMLビジュアルレポート生成
-
-### 4. データエクスポート
-- CSV、JSON、HTML形式での出力
-- タグベースNSFW分類
-- 統計情報の自動生成
-
-## 📦 インストール
-
-```bash
-# リポジトリをクローン
-git clone https://github.com/calico923/civitiai-tools.git
-cd civitiai-tools
-
-# Python仮想環境を作成（推奨）
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# 依存関係をインストール
-pip install -r requirements.txt
-```
-
-## 🚀 クイックスタート
-
-### 1. API設定
-[CivitAI](https://civitai.com/user/account)からAPIキーを取得し、環境変数に設定：
-
-```bash
-# .envファイルを作成
-cp .env.example .env
-
-# APIキーを設定
-CIVITAI_API_KEY=your_api_key_here
-```
-
-### 2. 基本的な使用例
-
-#### モデル検索
-```python
-from src.api.client import CivitAIClient
-
-client = CivitAIClient()
-models = client.search_models(
-    types="Checkpoint",
-    tags="anime",
-    sort="Highest Rated",
-    limit=100
-)
-```
-
-#### ランキング生成
-```bash
-# Illustriousモデルのランキングを生成
-python scripts/collection/illustrious_type_search.py
-```
-
-## 📊 主要スクリプト
-
-### データ収集
-- `scripts/collection/illustrious_type_search.py` - タイプ別モデル検索
-- `scripts/collection/comprehensive_collection.py` - 包括的データ収集
-- `scripts/collection/enhanced_collection.py` - 詳細メトリクス収集
-
-### 分析・ランキング
-- `create_top100_excluding_hall_of_fame.py` - Top100ランキング生成
-- `scripts/analysis/comprehensive_search.py` - データ分析
-
-### ユーティリティ
-- `src/api/client.py` - CivitAI APIクライアント（カーソルページネーション対応）
-- `src/core/enhanced_url_collector.py` - URL収集・エクスポート
+- **🏗️ 3層アーキテクチャ**: API・Core・Data層による疎結合設計
+- **🔒 セキュリティファースト**: SafeTensors優先、Pickleファイル条件付き対応
+- **⚡ 高パフォーマンス**: 10,000+モデル対応の高度なメモリ管理
+- **🧪 TDD開発**: テスト駆動開発による高品質保証
+- **📊 包括的エラー処理**: 統一エラーシステムとフォールバック機構
 
 ## 📁 プロジェクト構造
 
 ```
-civitiai-tools/
-├── src/                     # ソースコード
-│   ├── api/                # API関連
-│   │   ├── client.py       # APIクライアント
-│   │   └── tag_discovery.py # タグ検索
-│   └── core/               # コア機能
-├── scripts/                 # 実行スクリプト
-│   ├── collection/         # データ収集
-│   └── analysis/           # 分析スクリプト
-├── docs/                    # ドキュメント
-│   ├── civitai.md          # API仕様
-│   ├── ranking-rules.md    # ランキング方法
-│   └── searchplan.md       # 検索計画
-├── outputs/                 # 出力ディレクトリ（.gitignore）
-├── tests/                   # テストスイート
-└── requirements.txt        # 依存関係
+civitai-downloader-v2/           # メインプロジェクト
+├── src/                         # ソースコード
+│   ├── api/                     # API層
+│   ├── core/                    # Core層（ビジネスロジック）
+│   └── data/                    # Data層（データアクセス）
+├── tests/                       # テストスイート
+├── docs/                        # プロジェクトドキュメント
+└── config/                      # 設定ファイル
+
+1st-coding/                      # アーカイブ（旧プロトタイプ・調査資料）
 ```
 
-## 📋 API仕様の注意点
+## 🚀 開発状況
 
-CivitAI APIには以下の制約があります（詳細は`docs/civitai.md`参照）：
+### ✅ Phase 1: 基盤システム完了 (49/49テスト合格)
 
-- **カーソルベースページネーション**: nextCursorを使用した順次取得が必要
-- **タイプ名の正規化**: LyCORISは内部的に"LoCon"として送信
-- **レート制限**: 適切なインターバル（2秒）の設定
-- **最大取得数**: 1リクエストあたり最大100件
+- **3層アーキテクチャ**: クリーンな層分離
+- **抽象インターフェース**: 拡張可能な設計パターン
+- **メモリ管理**: 大規模データ対応
+- **エラー処理**: 統一システム
+- **設定管理**: YAML + 環境変数
+- **データモデル**: Pydantic V2による型安全性
 
-## 🏆 実績例
+### 🔄 実装予定
 
-### Illustrious Checkpointランキング（Top 10）
-1. Hassaku XL (Illustrious) - スコア100.0
-2. Mistoon_Anime - スコア84.3
-3. PerfectDeliberate - スコア57.6
-4. Illustrious-XL - スコア56.5
-5. NTR MIX - スコア55.9
+- Phase 2: API層実装
+- Phase 3: Core層実装
+- Phase 4: Data層実装
+- Phase 5: ダウンロード機能
+- Phase 6: CLI実装
+- Phase 7: 統合テスト
 
-※ WAI-NSFW-illustrious-SDXLは殿堂入り（いいね47,373、DL639,550）
+## 🛠️ 技術スタック
 
-## 🛠️ 開発
+- **Python**: 3.11+
+- **データ検証**: Pydantic V2
+- **テスト**: pytest
+- **設定**: YAML + 環境変数
+- **アーキテクチャ**: Clean Architecture
+- **開発手法**: TDD (Test-Driven Development)
 
-### テスト実行
+## 📚 ドキュメント
+
+詳細なドキュメントは [`civitai-downloader-v2/docs/`](./civitai-downloader-v2/docs/) をご参照ください。
+
+- [Phase 1: 基盤システム実装レポート](./civitai-downloader-v2/docs/phase-1-foundation-systems.md)
+
+## 🔧 開発環境セットアップ
+
 ```bash
-# 全テストを実行
-python -m pytest
+# 1. 仮想環境の有効化
+source venv/bin/activate
 
-# カバレッジ付き
-python -m pytest --cov=src
+# 2. プロジェクトディレクトリに移動
+cd civitai-downloader-v2
 
-# 特定のテスト
-python -m pytest tests/test_api_client.py -v
+# 3. テスト実行
+python -m pytest tests/unit/ -v
 ```
 
-### コード品質
-```bash
-# Ruffでリント
-ruff check .
+## 📈 テスト状況
 
-# 自動修正
-ruff check --fix .
+```
+Phase 1: 49/49 tests passing ✅
+├── Project Structure: 8 tests ✅
+├── Abstract Interfaces: 8 tests ✅
+├── Memory Management: 8 tests ✅
+├── Error Handling: 8 tests ✅
+├── Configuration: 9 tests ✅
+└── Data Models: 8 tests ✅
 ```
 
-## 📝 ライセンス
+## 🔐 セキュリティ
 
-[ライセンス情報を追加予定]
+- **ファイル形式検証**: SafeTensors優先サポート
+- **セキュリティスキャン**: 全ファイル自動検証
+- **ハッシュ検証**: SHA256による整合性確認
+- **機密情報保護**: API Key等の安全な管理
 
-## 🤝 コントリビューション
+## 📄 ライセンス
 
-1. このリポジトリをフォーク
-2. 機能ブランチを作成 (`git checkout -b feature/amazing-feature`)
-3. 変更をコミット (`git commit -m 'Add amazing feature'`)
-4. ブランチにプッシュ (`git push origin feature/amazing-feature`)
-5. プルリクエストを作成
+[ライセンス情報は後日追加予定]
 
-## ⚠️ 注意事項
+---
 
-- APIキーは必ず環境変数で管理してください
-- 出力ファイル（outputs/）はGitにコミットされません
-- レート制限を遵守し、過度なリクエストは避けてください
-
-## 📞 サポート
-
-問題や提案がある場合は、[Issues](https://github.com/calico923/civitiai-tools/issues)でお知らせください。
+**最終更新**: 2025年1月19日  
+**プロジェクト状況**: Phase 1 完了 ✅  
+**開発者**: Claude Code
