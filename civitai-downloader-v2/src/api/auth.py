@@ -9,6 +9,15 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+try:
+    from ..core.config.env_loader import get_civitai_api_key
+except ImportError:
+    # Handle relative import issues
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from core.config.env_loader import get_civitai_api_key
+
 
 class AuthError(Exception):
     """Authentication-specific error."""
@@ -34,9 +43,10 @@ class AuthManager:
         Initialize authentication manager.
         
         Args:
-            api_key: CivitAI API key
+            api_key: CivitAI API key (if None, will try to load from environment)
         """
-        self.api_key = api_key
+        # Use provided API key or load from environment
+        self.api_key = api_key or get_civitai_api_key()
         self.session = {}
         self._session_file = Path.home() / ".civitai" / "session.json"
         self._ensure_config_dir()
@@ -55,9 +65,17 @@ class AuthManager:
         if not self.api_key:
             return False
         
-        if isinstance(self.api_key, str) and len(self.api_key) > 10:
-            # Check for common prefix patterns
-            if self.api_key.startswith("civitai_"):
+        if isinstance(self.api_key, str):
+            # CivitAI API keys are typically 32-character hexadecimal strings
+            if len(self.api_key) == 32:
+                # Check if it's a valid hexadecimal string
+                try:
+                    int(self.api_key, 16)
+                    return True
+                except ValueError:
+                    pass
+            # Also accept longer keys or keys with prefixes
+            elif len(self.api_key) > 10:
                 return True
         
         return False
@@ -204,10 +222,11 @@ class MultiAuthStrategy:
         Initialize multi-auth strategy.
         
         Args:
-            api_key: Optional API key
+            api_key: Optional API key (if None, will try to load from environment)
         """
-        self.api_key = api_key
-        self._auth_manager = AuthManager(api_key)
+        # Use provided API key or load from environment
+        self.api_key = api_key or get_civitai_api_key()
+        self._auth_manager = AuthManager(self.api_key)
         self._web_auth = None  # Lazy load web auth
     
     def get_primary_auth_method(self) -> str:
