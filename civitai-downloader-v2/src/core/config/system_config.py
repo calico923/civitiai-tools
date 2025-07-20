@@ -6,6 +6,8 @@ environment variable overrides, type conversion, validation, and secure handling
 of sensitive data.
 """
 
+import contextlib
+import logging
 import os
 import yaml
 import re
@@ -78,8 +80,9 @@ class SystemConfig:
                 yaml_data = yaml.safe_load(f) or {}
                 self._config_data = yaml_data
         except (yaml.YAMLError, IOError) as e:
-            # Don't fail on config file errors, just use defaults + env vars
-            pass
+            # Log config file errors for debugging, but don't fail
+            logging.warning(f"Failed to load config file {config_file}: {e}")
+            logging.info("Using default configuration with environment variable overrides")
     
     def _apply_env_overrides(self) -> None:
         """Apply environment variable overrides."""

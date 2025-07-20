@@ -88,7 +88,7 @@ class TestAuthentication:
         
         AuthManager = auth_module.AuthManager
         
-        api_key = "civitai_test_key_123"
+        api_key = "test_mock_key_123"
         auth_manager = AuthManager(api_key=api_key)
         
         # Get authentication headers
@@ -180,7 +180,7 @@ class TestAuthentication:
     
     @pytest.mark.asyncio
     async def test_web_login_flow(self):
-        """Test web-based login flow with credentials."""
+        """Test web-based login flow - should raise NotImplementedError for now."""
         web_auth_path = self.api_dir / "web_auth.py"
         spec = importlib.util.spec_from_file_location("web_auth", web_auth_path)
         web_auth_module = importlib.util.module_from_spec(spec)
@@ -190,22 +190,15 @@ class TestAuthentication:
         
         web_auth = WebAuthManager()
         
-        # Mock the HTTP client for login
-        with patch.object(web_auth, '_http_client') as mock_http:
-            # Mock successful login response
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.cookies = {'session': 'test_session_cookie'}
-            mock_response.json.return_value = {'success': True, 'user': {'id': 123}}
-            mock_http.post = AsyncMock(return_value=mock_response)
-            
-            # Test login
-            credentials = {'username': 'testuser', 'password': 'testpass'}
-            result = await web_auth.login(credentials)
-            
-            assert result['success'] is True, "Login should succeed"
-            assert web_auth.is_logged_in(), "Should be logged in after successful login"
-            assert len(web_auth.session_cookies) > 0, "Should have session cookies"
+        # Test that login raises NotImplementedError (security fix)
+        credentials = {'username': 'testuser', 'password': 'testpass'}
+        
+        with pytest.raises(NotImplementedError) as exc_info:
+            await web_auth.login(credentials)
+        
+        # Verify the error message indicates this is intentional
+        assert "not yet implemented" in str(exc_info.value).lower()
+        assert "api key authentication" in str(exc_info.value).lower()
     
     @pytest.mark.asyncio
     async def test_web_auth_cookie_management(self):
@@ -335,7 +328,7 @@ class TestAuthentication:
         
         # Test secure storage
         test_credentials = {
-            'api_key': 'civitai_secret_key_123',
+            'api_key': 'test_mock_secret_key_123',
             'username': 'testuser',
             'password': 'testpass123'
         }
@@ -346,7 +339,7 @@ class TestAuthentication:
         # Verify credentials are not stored in plain text
         stored_data = store._get_raw_storage()
         if stored_data:
-            assert 'civitai_secret_key_123' not in str(stored_data), "API key should not be in plain text"
+            assert 'test_mock_secret_key_123' not in str(stored_data), "API key should not be in plain text"
             assert 'testpass123' not in str(stored_data), "Password should not be in plain text"
         
         # Test retrieval

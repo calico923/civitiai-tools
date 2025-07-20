@@ -5,11 +5,9 @@ Handles API key authentication, session management, and credential storage.
 """
 
 import json
-import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional
-import asyncio
 
 
 class AuthError(Exception):
@@ -241,9 +239,17 @@ class MultiAuthStrategy:
         
         Returns:
             True if successful, False otherwise
+            
+        Raises:
+            NotImplementedError: Web authentication not yet implemented
         """
-        # In real implementation, would use WebAuthManager
-        return True
+        # TODO: Implement actual web authentication using WebAuthManager
+        # This is a placeholder that should be replaced with real implementation
+        # For now, raise NotImplementedError to prevent security vulnerabilities
+        raise NotImplementedError(
+            "Web authentication is not yet implemented. "
+            "Please use API key authentication or implement web auth logic."
+        )
     
     async def authenticate(self) -> bool:
         """
@@ -260,8 +266,12 @@ class MultiAuthStrategy:
                 # Fall back to web auth
                 pass
         
-        # Try web authentication
-        return await self.authenticate_with_web()
+        # Try web authentication (will raise NotImplementedError for now)
+        try:
+            return await self.authenticate_with_web()
+        except NotImplementedError:
+            # Web authentication not implemented yet, use API key as fallback
+            return False
 
 
 class CredentialStore:

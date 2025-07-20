@@ -10,7 +10,7 @@ import sys
 import threading
 from collections import OrderedDict
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 from dataclasses import dataclass
 
 

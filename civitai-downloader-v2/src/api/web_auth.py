@@ -9,7 +9,6 @@ import httpx
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional
-import asyncio
 
 
 class WebAuthManager:
@@ -36,26 +35,23 @@ class WebAuthManager:
             
         Returns:
             Login result with success status
+            
+        Raises:
+            NotImplementedError: Web login not yet implemented
         """
-        # In real implementation, would perform actual login
-        # For testing, simulate successful login
-        if 'username' in credentials and 'password' in credentials:
-            # Mock successful login
-            self.session_cookies = {
-                'session': 'test_session_cookie',
-                'csrf_token': 'test_csrf_token'
-            }
-            self._is_logged_in = True
-            
-            # Save cookies
-            self.save_cookies(self.session_cookies)
-            
-            return {
-                'success': True,
-                'user': {'id': 123, 'username': credentials['username']}
-            }
+        # TODO: Implement actual web-based login flow
+        # This would involve:
+        # 1. GET login page to obtain CSRF token
+        # 2. POST credentials with CSRF token
+        # 3. Handle redirects and extract session cookies
+        # 4. Validate successful login
         
-        return {'success': False, 'error': 'Invalid credentials'}
+        # For now, raise NotImplementedError to prevent security vulnerabilities
+        raise NotImplementedError(
+            "Web-based login is not yet implemented. "
+            "This is a placeholder for future OAuth2/session-based authentication. "
+            "Please use API key authentication for now."
+        )
     
     def is_logged_in(self) -> bool:
         """
