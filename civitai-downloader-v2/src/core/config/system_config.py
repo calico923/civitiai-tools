@@ -15,6 +15,15 @@ from typing import Dict, Any, Optional, Union
 from pathlib import Path
 from urllib.parse import urlparse
 
+try:
+    from .env_loader import ensure_env_loaded
+except ImportError:
+    # Handle relative import issues
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent))
+    from env_loader import ensure_env_loaded
+
 
 class SystemConfig:
     """
@@ -37,6 +46,9 @@ class SystemConfig:
         """
         self._config_data = {}
         self._defaults = self._setup_defaults()
+        
+        # Ensure .env files are loaded first
+        ensure_env_loaded()
         
         # Load configuration from file if provided
         if config_file and Path(config_file).exists():
