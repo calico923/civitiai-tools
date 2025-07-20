@@ -29,20 +29,20 @@ except ImportError:
 @dataclass
 class TimeSeriesData:
     """Time series data point."""
-    timestamp: float
-    value: float
+    timestamp: float = 0.0
+    value: float = 0.0
     label: Optional[str] = None
 
 
 @dataclass
 class TrendAnalysis:
     """Trend analysis result."""
-    metric_name: str
-    current_value: float
-    previous_value: float
-    change_percent: float
-    trend_direction: str  # "up", "down", "stable"
-    significance: str     # "high", "medium", "low"
+    metric_name: str = ""
+    current_value: float = 0.0
+    previous_value: float = 0.0
+    change_percent: float = 0.0
+    trend_direction: str = "stable"  # "up", "down", "stable"
+    significance: str = "low"        # "high", "medium", "low"
     
     @property
     def is_improving(self) -> bool:
