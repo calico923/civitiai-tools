@@ -1,36 +1,28 @@
-# CivitAI Tools - Development Dependencies
+# CivitAI Downloader v2 - Requirements
+# Phase 1: Foundation Systems
 
-# HTTP Client for API requests
-aiohttp>=3.9.0
-requests>=2.31.0
+# Core Dependencies
+pydantic>=2.10.0              # Data validation and serialization
+PyYAML>=6.0                   # YAML configuration files
+httpx>=0.27.0                 # Modern HTTP client for API calls
+aiofiles>=23.0.0              # Async file operations
 
-# CLI Framework
-click>=8.1.0
+# Development Dependencies
+pytest>=7.4.0                 # Testing framework
+pytest-asyncio>=0.23.0        # Async testing support
+pytest-mock>=3.12.0           # Mocking for tests
 
-# Data Processing
-pydantic>=2.5.0
-python-dateutil>=2.8.0
+# Optional Dependencies (will be added in later phases)
+# click>=8.1.0                # CLI framework (Phase 6)
+# sqlalchemy>=2.0.0           # Database ORM (Phase 4)
+# alembic>=1.13.0             # Database migrations (Phase 4)
+# rich>=13.0.0                # Rich terminal output (Phase 6)
+# tqdm>=4.66.0                # Progress bars (Phase 5)
 
-# File formats
-PyYAML>=6.0
-pandas>=2.0.0
+# Security Dependencies
+cryptography>=41.0.0          # Cryptographic operations
+certifi>=2023.0.0             # SSL certificate validation
 
-# Testing
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-pytest-cov>=4.1.0
-
-# Development tools
-black>=23.0.0
-flake8>=6.0.0
-mypy>=1.7.0
-
-# Documentation
-markdown>=3.5.0
-
-# Progress bars
-tqdm>=4.66.0
-rich>=13.7.0
-
-# Configuration
-platformdirs>=4.0.0
+# System Dependencies
+psutil>=5.9.0                 # System and process monitoring
+pathlib>=1.0.1                # Enhanced path operations (Python 3.11+ builtin)
