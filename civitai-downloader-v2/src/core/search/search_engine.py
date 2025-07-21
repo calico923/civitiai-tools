@@ -260,6 +260,40 @@ class AdvancedSearchEngine:
         
         return result
     
+    async def search_streaming(self, search_params: AdvancedSearchParams, 
+                             batch_size: int = 50):
+        """
+        Stream search results in batches for memory optimization.
+        
+        Args:
+            search_params: Advanced search parameters
+            batch_size: Number of models per batch
+            
+        Yields:
+            SearchResult batches
+        """
+        page = 1
+        has_more = True
+        
+        while has_more:
+            # Create paginated params
+            batch_params = AdvancedSearchParams(
+                **search_params.__dict__,
+                page=page,
+                limit=min(batch_size, search_params.limit)
+            )
+            
+            # Get batch
+            result = await self.search(batch_params)
+            
+            # Yield batch if has results
+            if result.models:
+                yield result
+            
+            # Check if more pages
+            has_more = result.has_next and len(result.models) == batch_size
+            page += 1
+    
     async def _execute_search_with_fallback(self, search_params: AdvancedSearchParams) -> SearchResult:
         """Execute search with fallback per requirement 12.4."""
         fallback_used = None
