@@ -11,6 +11,7 @@ import pickle
 import ast
 import re
 import tempfile
+from .redos_protection import ReDoSProtector, TimeoutException, safe_search
 
 # Optional dependency
 try:
@@ -112,10 +113,19 @@ class SecurityScanner:
         self.scan_timeout = self.config.get('security.scan_timeout', 300)  # 5 minutes
         self.deep_scan = self.config.get('security.deep_scan', True)
         
-        # Threat patterns
+        # Threat patterns with ReDoS protection
         self._malicious_patterns = self._load_malicious_patterns()
         self._suspicious_imports = self._load_suspicious_imports()
         self._allowed_file_types = self._load_allowed_file_types()
+        
+        # ReDoS protection
+        self._redos_protector = ReDoSProtector(
+            default_timeout=config.get('security.scan_timeout', 10.0),
+            max_input_length=config.get('security.max_scan_length', 50000)
+        )
+        
+        # Audit patterns for ReDoS vulnerabilities
+        self._audit_regex_patterns()
         
         # Statistics
         self.scan_stats = {
@@ -533,14 +543,30 @@ class SecurityScanner:
                         description=f"Suspicious import detected: {suspicious_import}"
                     ))
             
-            # Check for malicious patterns
+            # Check for malicious patterns with ReDoS protection
             for pattern in self._malicious_patterns:
-                if re.search(pattern, content, re.IGNORECASE):
+                try:
+                    # Use safe search with timeout
+                    match = self._redos_protector.safe_search(
+                        pattern, content, timeout=5.0, flags=re.IGNORECASE
+                    )
+                    if match:
+                        issues.append(SecurityIssue(
+                            threat_type=ThreatType.MALICIOUS_CODE,
+                            severity="high",
+                            description=f"Malicious pattern detected: {pattern}"
+                        ))
+                except TimeoutException:
+                    # Pattern took too long - potential ReDoS
                     issues.append(SecurityIssue(
                         threat_type=ThreatType.MALICIOUS_CODE,
-                        severity="high",
-                        description=f"Malicious pattern detected: {pattern}"
+                        severity="critical",
+                        description=f"Pattern scanning timed out - possible ReDoS attack or large file: {pattern}"
                     ))
+                except ValueError as e:
+                    # Pattern rejected due to ReDoS risk
+                    logger.warning(f"Pattern rejected for safety: {pattern} - {e}")
+                    # Continue with other patterns
         
         except Exception:
             pass  # Silently skip if text reading fails
@@ -670,6 +696,34 @@ class SecurityScanner:
             'from subprocess import',
             '__import__',
         }
+    
+    def _audit_regex_patterns(self) -> None:
+        """Audit regex patterns for ReDoS vulnerabilities."""
+        try:
+            logger.info("Auditing regex patterns for ReDoS vulnerabilities...")
+            
+            # Audit malicious patterns
+            audit_results = self._redos_protector.audit_patterns(self._malicious_patterns)
+            
+            high_risk_patterns = []
+            for pattern, analysis in audit_results.items():
+                if analysis.risk_level.value in ['high', 'critical']:
+                    high_risk_patterns.append(pattern)
+                    logger.warning(f"High-risk regex pattern: {pattern}")
+                    logger.warning(f"Issues: {', '.join(analysis.issues)}")
+            
+            if high_risk_patterns:
+                logger.warning(f"Found {len(high_risk_patterns)} high-risk regex patterns")
+                logger.warning("Consider updating patterns or implementing additional safeguards")
+            else:
+                logger.info("All regex patterns passed ReDoS security audit")
+        
+        except Exception as e:
+            logger.error(f"Failed to audit regex patterns: {e}")
+    
+    def get_redos_audit_report(self) -> str:
+        """Generate ReDoS audit report for all patterns."""
+        return self._redos_protector.generate_audit_report(self._malicious_patterns)
     
     def _load_allowed_file_types(self) -> Set[str]:
         """Load allowed file extensions."""
