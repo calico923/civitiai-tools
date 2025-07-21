@@ -4,7 +4,6 @@ Simplified unit tests for Analytics system.
 Tests basic functionality without complex dependencies.
 """
 
-import json
 import os
 import sqlite3
 import tempfile

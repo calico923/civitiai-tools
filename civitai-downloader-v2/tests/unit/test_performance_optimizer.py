@@ -438,10 +438,6 @@ class TestPerformanceOptimizer:
             unstable_speed = 100 * 1024 * (1.0 + 0.5 * (cycle % 3 - 1))  # Varies between 50KB/s to 150KB/s
             self.optimizer.update_download_speed(unstable_speed, 1.0)
             
-            # Record pre-adjustment values
-            pre_connections = self.optimizer.current_connections
-            pre_chunk_size = self.optimizer.current_chunk_size
-            
             # Perform adjustment
             self.optimizer._adjust_parameters()
             
