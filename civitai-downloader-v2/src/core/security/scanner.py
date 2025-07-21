@@ -53,6 +53,7 @@ class ThreatType(Enum):
     INVALID_FORMAT = "invalid_format"
     HASH_MISMATCH = "hash_mismatch"
     SCAN_TIMEOUT = "scan_timeout"
+    OBFUSCATED_CODE = "obfuscated_code"
 
 
 @dataclass

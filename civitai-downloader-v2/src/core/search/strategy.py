@@ -352,6 +352,11 @@ class SearchStrategy:
         """
         Search for specific models by IDs.
         
+        Note: This implementation performs N API calls for N model IDs (N+1 problem).
+        This is due to CivitAI API limitations - no batch endpoint is available for
+        fetching multiple models by ID. For large numbers of IDs, consider using
+        pagination-based search with filters instead.
+        
         Args:
             model_ids: List of model IDs
             
