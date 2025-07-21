@@ -6,7 +6,6 @@ Implements requirement 17.1: 99.5% uptime target with availability tracking.
 
 import logging
 import time
-import asyncio
 import sqlite3
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field

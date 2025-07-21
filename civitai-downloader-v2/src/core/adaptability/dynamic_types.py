@@ -8,7 +8,6 @@ import logging
 import time
 from typing import Dict, Set, List, Any, Optional
 from dataclasses import dataclass, field
-from enum import Enum
 import json
 from pathlib import Path
 

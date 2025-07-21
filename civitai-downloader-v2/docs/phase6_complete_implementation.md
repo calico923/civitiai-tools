@@ -244,7 +244,7 @@ class ProgressDisplay:
 
 ### アーキテクチャ設計
 
-```
+```text
 src/
 ├── core/
 │   ├── adaptability/         # 将来対応システム
