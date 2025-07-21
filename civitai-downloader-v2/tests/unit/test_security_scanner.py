@@ -246,6 +246,69 @@ def malicious_function():
         threat_types = [issue.threat_type for issue in report.issues]
         assert ThreatType.SUSPICIOUS_IMPORTS in threat_types or ThreatType.MALICIOUS_CODE in threat_types
     
+    def test_detect_obfuscated_malicious_patterns(self):
+        """Test detection of obfuscated malicious code patterns."""
+        import base64
+        
+        # Create Base64 encoded malicious content
+        malicious_eval = "eval('print(\"hidden malicious code\")')"
+        encoded_eval = base64.b64encode(malicious_eval.encode()).decode()
+        
+        malicious_exec = "exec('import subprocess; subprocess.call([\"rm\", \"-rf\", \"/tmp\"])')"
+        encoded_exec = base64.b64encode(malicious_exec.encode()).decode()
+        
+        obfuscated_file = self.temp_path / "obfuscated_malicious.py"
+        obfuscated_content = f"""
+import base64
+import subprocess
+
+# Base64 obfuscated malicious code
+encoded_payload_1 = "{encoded_eval}"
+encoded_payload_2 = "{encoded_exec}"
+
+def run_hidden_code():
+    # Decode and execute malicious code
+    code1 = base64.b64decode(encoded_payload_1).decode()
+    code2 = base64.b64decode(encoded_payload_2).decode()
+    
+    eval(code1)  # Should be detected even when preceded by base64 decode
+    exec(code2)  # Should be detected even when preceded by base64 decode
+    
+    # Additional obfuscation patterns
+    getattr(__builtins__, 'eval')('malicious_code')
+    __import__('subprocess').call(['rm', '-rf', '/'])
+"""
+        
+        with open(obfuscated_file, 'w') as f:
+            f.write(obfuscated_content)
+        
+        report = self.scanner.scan_file(obfuscated_file)
+        
+        # Should detect obfuscated malicious patterns
+        assert report.scan_result in [ScanResult.SUSPICIOUS, ScanResult.MALICIOUS], \
+            "Scanner should detect base64-obfuscated malicious code"
+        
+        # Verify specific threat types are detected
+        threat_types = [issue.threat_type for issue in report.issues]
+        detected_threats = set(threat_types)
+        
+        # Should detect at least one of these obfuscated threats
+        expected_threats = {
+            ThreatType.MALICIOUS_CODE,
+            ThreatType.SUSPICIOUS_IMPORTS,
+            ThreatType.OBFUSCATED_CODE  # If this threat type exists
+        }
+        
+        assert len(detected_threats.intersection(expected_threats)) > 0, \
+            f"Should detect obfuscated threats, found: {detected_threats}"
+        
+        # Verify detection messages mention obfuscation or encoding
+        issue_descriptions = [issue.description.lower() for issue in report.issues]
+        detection_keywords = ['eval', 'exec', 'base64', 'decode', 'subprocess', 'obfuscat']
+        
+        assert any(keyword in desc for desc in issue_descriptions for keyword in detection_keywords), \
+            "Detection should identify obfuscation techniques or dangerous functions"
+    
     def test_validate_zip_file(self):
         """Test ZIP file validation."""
         zip_file = self.temp_path / "test.zip"

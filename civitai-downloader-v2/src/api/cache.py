@@ -26,7 +26,7 @@ class LRUConfig:
 class ResponseCache:
     """TTL-based response cache with LRU eviction and memory pressure handling."""
     
-    def __init__(self, ttl_seconds: int = 300, 
+    def __init__(self, ttl_seconds: int = 900,  # 15 minutes per requirement 16.2 
                  lru_config: Optional[LRUConfig] = None,
                  max_size: Optional[int] = None,
                  memory_threshold: Optional[int] = None):

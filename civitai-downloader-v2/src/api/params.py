@@ -7,6 +7,24 @@ Provides data classes for managing search parameters and advanced filters.
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import List, Optional, Dict, Any
+from enum import Enum
+
+
+class ModelType(Enum):
+    """Model types supported by CivitAI per requirements.md requirement 1.2."""
+    CHECKPOINT = "Checkpoint"
+    LORA = "LORA"
+    LOCON = "LoCon"
+    DORA = "DoRA"
+    TEXTUALINVERSION = "TextualInversion"
+    HYPERNETWORK = "Hypernetwork"
+    AESTHETICGRADIENT = "AestheticGradient"
+    CONTROLNET = "Controlnet"
+    POSES = "Poses"
+    WILDCARDS = "Wildcards"
+    WORKFLOWS = "Workflows"
+    OTHER = "Other"
+    VAE = "VAE"
 
 
 @dataclass
@@ -21,6 +39,7 @@ class SearchParams:
     sort: Optional[str] = None
     period: Optional[str] = None
     nsfw: Optional[bool] = None
+    base_models: Optional[List[str]] = None  # Support 50+ base models per requirement 1.3
     
     def to_dict(self) -> Dict[str, Any]:
         """

@@ -51,7 +51,9 @@ class RateLimiter:
                 max_rate=max_rate or 2.0
             )
         
-        self.min_interval = 1.0 / self.current_rate if self.current_rate > 0 else 0
+        # Enforce 2-second minimum interval per requirement 16.3
+        calculated_interval = 1.0 / self.current_rate if self.current_rate > 0 else 0
+        self.min_interval = max(calculated_interval, 2.0)
         self.last_request_time: Optional[datetime] = None
         
         # Adaptive tracking
