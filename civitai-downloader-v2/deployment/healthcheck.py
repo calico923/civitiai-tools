@@ -6,7 +6,6 @@ Returns exit code 0 if healthy, 1 if unhealthy.
 
 import sys
 import asyncio
-import logging
 from pathlib import Path
 
 # Add src to path
