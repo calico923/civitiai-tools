@@ -1,797 +1,413 @@
 #!/usr/bin/env python3
 """
-Analytics Analyzer for CivitAI Downloader.
-Provides advanced analysis and insights from collected analytics data.
+Analytics data analysis system.
+Implements requirement 13.4: Statistics analysis, performance metrics.
 """
 
 import sqlite3
 import statistics
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Any, Union
-from datetime import datetime, timedelta
-from pathlib import Path
-import json
-import numpy as np
-from collections import defaultdict, Counter
 import time
+from dataclasses import dataclass
+from typing import Dict, List, Any, Optional, Tuple
+from collections import defaultdict, Counter
 
-try:
-    from .collector import AnalyticsCollector, EventType
-    from ...core.config.system_config import SystemConfig
-except ImportError:
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-    from core.analytics.collector import AnalyticsCollector, EventType
-    from core.config.system_config import SystemConfig
+from .collector import AnalyticsCollector, EventType
 
 
 @dataclass
-class TimeSeriesData:
-    """Time series data point."""
-    timestamp: float
-    value: float
-    label: Optional[str] = None
-
-
-@dataclass
-class TrendAnalysis:
-    """Trend analysis result."""
-    metric_name: str
-    current_value: float
-    previous_value: float
-    change_percent: float
-    trend_direction: str  # "up", "down", "stable"
-    significance: str     # "high", "medium", "low"
-    
-    @property
-    def is_improving(self) -> bool:
-        """Check if trend is improving (context-dependent)."""
-        improving_metrics = ['success_rate', 'download_speed', 'safe_files']
-        declining_metrics = ['failure_rate', 'error_count', 'scan_time']
-        
-        if any(metric in self.metric_name.lower() for metric in improving_metrics):
-            return self.trend_direction == "up"
-        elif any(metric in self.metric_name.lower() for metric in declining_metrics):
-            return self.trend_direction == "down"
-        else:
-            return self.trend_direction == "stable"
-
-
-@dataclass
-class UsagePattern:
-    """Usage pattern analysis."""
-    pattern_type: str
-    description: str
-    frequency: int
-    confidence: float
-    examples: List[str] = field(default_factory=list)
-    recommendations: List[str] = field(default_factory=list)
-
-
-@dataclass
-class PerformanceInsight:
-    """Performance insight analysis."""
-    category: str
-    metric: str
-    current_value: float
-    benchmark_value: float
-    impact: str  # "positive", "negative", "neutral"
-    severity: str  # "critical", "warning", "info"
-    recommendation: str
-    estimated_improvement: Optional[float] = None
-
-
-@dataclass
-class AnalyticsReport:
-    """Comprehensive analytics report."""
-    report_id: str
-    generated_at: float
-    time_period: Tuple[float, float]
+class AnalysisReport:
+    """Analytics analysis report."""
+    period_start: float
+    period_end: float
     summary: Dict[str, Any]
-    trends: List[TrendAnalysis]
-    patterns: List[UsagePattern]
-    insights: List[PerformanceInsight]
+    api_statistics: Dict[str, Any]
+    download_statistics: Dict[str, Any]
+    search_statistics: Dict[str, Any]
+    cache_statistics: Dict[str, Any]
+    performance_metrics: Dict[str, Any]
+    error_analysis: Dict[str, Any]
     recommendations: List[str]
-    charts_data: Dict[str, List[TimeSeriesData]] = field(default_factory=dict)
 
 
 class AnalyticsAnalyzer:
-    """Advanced analytics analyzer."""
+    """
+    Analytics data analyzer.
+    Provides comprehensive analysis and insights per requirement 13.
+    """
     
-    def __init__(self, collector: AnalyticsCollector, config: Optional[SystemConfig] = None):
-        """
-        Initialize analytics analyzer.
-        
-        Args:
-            collector: Analytics collector instance
-            config: System configuration
-        """
+    def __init__(self, collector: AnalyticsCollector):
+        """Initialize analytics analyzer."""
         self.collector = collector
-        self.config = config or SystemConfig()
-        self.db_path = collector.db_path
-        
-        # Analysis configuration
-        self.trend_significance_threshold = self.config.get('analytics.trend_threshold', 5.0)  # %
-        self.pattern_confidence_threshold = self.config.get('analytics.pattern_threshold', 0.7)
-        self.performance_benchmark = {
-            'download_speed': 5 * 1024 * 1024,  # 5 MB/s
-            'success_rate': 95.0,               # 95%
-            'scan_time': 1.0,                   # 1 second
-            'cpu_usage': 70.0,                  # 70%
-            'memory_usage': 60.0                # 60%
-        }
     
-    def generate_report(self, start_time: Optional[float] = None,
-                       end_time: Optional[float] = None,
-                       period_days: int = 7) -> AnalyticsReport:
-        """
-        Generate comprehensive analytics report.
+    def generate_report(self, start_time: float, end_time: float) -> AnalysisReport:
+        """Generate comprehensive analytics report."""
+        # Get events for the time period
+        events = self.collector.get_events(
+            start_time=start_time,
+            end_time=end_time
+        )
         
-        Args:
-            start_time: Start timestamp (defaults to period_days ago)
-            end_time: End timestamp (defaults to now)
-            period_days: Period length in days
-            
-        Returns:
-            Analytics report
-        """
-        if end_time is None:
-            end_time = time.time()
-        if start_time is None:
-            start_time = end_time - (period_days * 24 * 3600)
+        # Analyze different aspects
+        summary = self._analyze_summary(events, start_time, end_time)
+        api_stats = self._analyze_api_statistics(events)
+        download_stats = self._analyze_download_statistics(events)
+        search_stats = self._analyze_search_statistics(events)
+        cache_stats = self._analyze_cache_statistics(events)
+        performance = self._analyze_performance_metrics(events)
+        errors = self._analyze_error_patterns(events)
+        recommendations = self._generate_recommendations(
+            api_stats, download_stats, cache_stats, performance, errors
+        )
         
-        report_id = f"report_{int(time.time())}"
-        
-        # Generate analysis components
-        summary = self._generate_summary(start_time, end_time)
-        trends = self._analyze_trends(start_time, end_time)
-        patterns = self._identify_patterns(start_time, end_time)
-        insights = self._generate_insights(start_time, end_time)
-        recommendations = self._generate_recommendations(trends, patterns, insights)
-        charts_data = self._prepare_charts_data(start_time, end_time)
-        
-        return AnalyticsReport(
-            report_id=report_id,
-            generated_at=time.time(),
-            time_period=(start_time, end_time),
+        return AnalysisReport(
+            period_start=start_time,
+            period_end=end_time,
             summary=summary,
-            trends=trends,
-            patterns=patterns,
-            insights=insights,
-            recommendations=recommendations,
-            charts_data=charts_data
+            api_statistics=api_stats,
+            download_statistics=download_stats,
+            search_statistics=search_stats,
+            cache_statistics=cache_stats,
+            performance_metrics=performance,
+            error_analysis=errors,
+            recommendations=recommendations
         )
     
-    def _generate_summary(self, start_time: float, end_time: float) -> Dict[str, Any]:
-        """Generate summary statistics for the period."""
-        summary = {
-            'period': {
-                'start': datetime.fromtimestamp(start_time).isoformat(),
-                'end': datetime.fromtimestamp(end_time).isoformat(),
-                'duration_hours': (end_time - start_time) / 3600
+    def _analyze_summary(self, events: List[Dict[str, Any]], 
+                        start_time: float, end_time: float) -> Dict[str, Any]:
+        """Analyze overall summary statistics."""
+        duration_hours = (end_time - start_time) / 3600
+        
+        event_counts = Counter(event['event_type'] for event in events)
+        
+        # Count unique sessions
+        sessions = set(event.get('session_id') for event in events if event.get('session_id'))
+        
+        return {
+            'analysis_period': {
+                'start_time': start_time,
+                'end_time': end_time,
+                'duration_hours': round(duration_hours, 2)
             },
-            'downloads': self._summarize_downloads(start_time, end_time),
-            'searches': self._summarize_searches(start_time, end_time),
-            'security': self._summarize_security(start_time, end_time),
-            'performance': self._summarize_performance(start_time, end_time),
-            'errors': self._summarize_errors(start_time, end_time)
+            'total_events': len(events),
+            'unique_sessions': len(sessions),
+            'events_per_hour': round(len(events) / duration_hours, 2) if duration_hours > 0 else 0,
+            'event_type_breakdown': dict(event_counts),
+            'most_active_session': self._get_most_active_session(events)
+        }
+    
+    def _analyze_api_statistics(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze API usage statistics per requirement 13.1."""
+        api_requests = [e for e in events if e['event_type'] == 'api_request']
+        api_responses = [e for e in events if e['event_type'] == 'api_response']
+        api_errors = [e for e in events if e['event_type'] == 'api_error']
+        
+        # Match requests with responses/errors
+        request_dict = {
+            event['data'].get('request_id'): event 
+            for event in api_requests 
+            if event.get('data', {}).get('request_id')
         }
         
-        return summary
-    
-    def _summarize_downloads(self, start_time: float, end_time: float) -> Dict[str, Any]:
-        """Summarize download activity."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
+        response_times = []
+        status_codes = Counter()
+        endpoint_stats = defaultdict(lambda: {'count': 0, 'errors': 0, 'avg_time': 0})
+        
+        # Process successful responses for response time calculation
+        for event in api_responses:
+            data = event.get('data', {})
+            request_id = data.get('request_id')
             
-            # Total downloads
-            total_downloads = conn.execute("""
-                SELECT COUNT(*) as count FROM events 
-                WHERE event_type = 'download_started' 
-                AND timestamp BETWEEN ? AND ?
-            """, (start_time, end_time)).fetchone()['count']
+            if request_id in request_dict:
+                request = request_dict[request_id]
+                endpoint = request['data'].get('endpoint', 'unknown')
+                response_time = data.get('response_time', 0)
+                
+                endpoint_stats[endpoint]['count'] += 1
+                
+                if response_time > 0:
+                    response_times.append(response_time)
+                    endpoint_stats[endpoint]['avg_time'] = (
+                        endpoint_stats[endpoint]['avg_time'] + response_time
+                    ) / 2
+        
+        # Process errors separately (count but don't include response time in averages)
+        for event in api_errors:
+            data = event.get('data', {})
+            request_id = data.get('request_id')
             
-            # Successful downloads
-            successful = conn.execute("""
-                SELECT COUNT(*) as count FROM events 
-                WHERE event_type = 'download_completed' 
-                AND timestamp BETWEEN ? AND ?
-            """, (start_time, end_time)).fetchone()['count']
-            
-            # Failed downloads
-            failed = conn.execute("""
-                SELECT COUNT(*) as count FROM events 
-                WHERE event_type = 'download_failed' 
-                AND timestamp BETWEEN ? AND ?
-            """, (start_time, end_time)).fetchone()['count']
-            
-            # Total bytes downloaded
-            bytes_result = conn.execute("""
-                SELECT SUM(CAST(JSON_EXTRACT(data, '$.file_size') AS INTEGER)) as total_bytes
-                FROM events 
-                WHERE event_type = 'download_completed' 
-                AND timestamp BETWEEN ? AND ?
-            """, (start_time, end_time)).fetchone()
-            
-            total_bytes = bytes_result['total_bytes'] or 0
-            
-            # Average download speed
-            speed_result = conn.execute("""
-                SELECT AVG(CAST(JSON_EXTRACT(data, '$.download_speed') AS REAL)) as avg_speed
-                FROM events 
-                WHERE event_type = 'download_completed' 
-                AND timestamp BETWEEN ? AND ?
-                AND JSON_EXTRACT(data, '$.download_speed') IS NOT NULL
-            """, (start_time, end_time)).fetchone()
-            
-            avg_speed = speed_result['avg_speed'] or 0
-            
-            return {
-                'total_downloads': total_downloads,
-                'successful_downloads': successful,
-                'failed_downloads': failed,
-                'success_rate': (successful / total_downloads * 100) if total_downloads > 0 else 0,
-                'total_bytes_downloaded': total_bytes,
-                'total_size_gb': total_bytes / (1024**3),
-                'average_download_speed_mbps': avg_speed / (1024**2),
-                'unique_models': self._count_unique_models(start_time, end_time)
+            if request_id in request_dict:
+                request = request_dict[request_id]
+                endpoint = request['data'].get('endpoint', 'unknown')
+                
+                endpoint_stats[endpoint]['count'] += 1
+                endpoint_stats[endpoint]['errors'] += 1
+        
+        for event in api_responses:
+            status_code = event.get('data', {}).get('status_code')
+            if status_code:
+                status_codes[status_code] += 1
+        
+        # Calculate success rate
+        total_requests = len(api_requests)
+        successful_responses = len([e for e in api_responses 
+                                  if e.get('data', {}).get('status_code', 0) < 400])
+        success_rate = (successful_responses / total_requests * 100) if total_requests > 0 else 0
+        
+        return {
+            'total_requests': total_requests,
+            'total_responses': len(api_responses),
+            'total_errors': len(api_errors),
+            'success_rate': round(success_rate, 2),
+            'avg_response_time': round(statistics.mean(response_times), 3) if response_times else 0,
+            'median_response_time': round(statistics.median(response_times), 3) if response_times else 0,
+            'max_response_time': max(response_times) if response_times else 0,
+            'status_code_distribution': dict(status_codes),
+            'endpoint_statistics': dict(endpoint_stats),
+            'requests_per_endpoint': {
+                endpoint: stats['count'] 
+                for endpoint, stats in endpoint_stats.items()
             }
+        }
     
-    def _summarize_searches(self, start_time: float, end_time: float) -> Dict[str, Any]:
-        """Summarize search activity."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            
-            # Total searches
-            total_searches = conn.execute("""
-                SELECT COUNT(*) as count FROM events 
-                WHERE event_type = 'search_performed' 
-                AND timestamp BETWEEN ? AND ?
-            """, (start_time, end_time)).fetchone()['count']
-            
-            # Average results per search
-            avg_results = conn.execute("""
-                SELECT AVG(CAST(JSON_EXTRACT(data, '$.result_count') AS REAL)) as avg_results
-                FROM events 
-                WHERE event_type = 'search_performed' 
-                AND timestamp BETWEEN ? AND ?
-            """, (start_time, end_time)).fetchone()
-            
-            avg_results_count = avg_results['avg_results'] or 0
-            
-            # Average response time
-            avg_response = conn.execute("""
-                SELECT AVG(CAST(JSON_EXTRACT(data, '$.response_time') AS REAL)) as avg_time
-                FROM events 
-                WHERE event_type = 'search_performed' 
-                AND timestamp BETWEEN ? AND ?
-            """, (start_time, end_time)).fetchone()
-            
-            avg_response_time = avg_response['avg_time'] or 0
-            
+    def _analyze_download_statistics(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze download statistics per requirement 13.4."""
+        downloads_started = [e for e in events if e['event_type'] == 'download_started']
+        downloads_completed = [e for e in events if e['event_type'] == 'download_completed']
+        downloads_failed = [e for e in events if e['event_type'] == 'download_failed']
+        
+        total_downloads = len(downloads_started)
+        successful_downloads = len(downloads_completed)
+        failed_downloads = len(downloads_failed)
+        
+        success_rate = (successful_downloads / total_downloads * 100) if total_downloads > 0 else 0
+        
+        # Analyze download sizes and speeds
+        file_sizes = []
+        download_speeds = []
+        download_durations = []
+        
+        for event in downloads_completed:
+            data = event.get('data', {})
+            if 'bytes_downloaded' in data:
+                file_sizes.append(data['bytes_downloaded'])
+            if 'average_speed' in data:
+                download_speeds.append(data['average_speed'])
+            if 'duration' in data:
+                download_durations.append(data['duration'])
+        
+        # File type analysis
+        file_types = Counter()
+        for event in downloads_started:
+            file_name = event.get('data', {}).get('file_name', '')
+            if file_name:
+                ext = file_name.split('.')[-1].lower()
+                file_types[ext] += 1
+        
+        return {
+            'total_downloads': total_downloads,
+            'successful_downloads': successful_downloads,
+            'failed_downloads': failed_downloads,
+            'success_rate': round(success_rate, 2),
+            'avg_file_size_mb': round(statistics.mean(file_sizes) / (1024*1024), 2) if file_sizes else 0,
+            'total_downloaded_gb': round(sum(file_sizes) / (1024*1024*1024), 2) if file_sizes else 0,
+            'avg_download_speed_mbps': round(statistics.mean(download_speeds) / (1024*1024), 2) if download_speeds else 0,
+            'avg_download_duration': round(statistics.mean(download_durations), 2) if download_durations else 0,
+            'file_type_distribution': dict(file_types),
+            'largest_file_mb': round(max(file_sizes) / (1024*1024), 2) if file_sizes else 0
+        }
+    
+    def _analyze_search_statistics(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze search operation statistics."""
+        searches = [e for e in events if e['event_type'] == 'search_performed']
+        
+        if not searches:
             return {
-                'total_searches': total_searches,
-                'average_results_per_search': avg_results_count,
-                'average_response_time': avg_response_time,
-                'popular_queries': self._get_popular_queries(start_time, end_time)
+                'total_searches': 0,
+                'avg_response_time': 0,
+                'avg_results_count': 0,
+                'total_results_discovered': 0
             }
+        
+        response_times = []
+        results_counts = []
+        queries = Counter()
+        
+        for event in searches:
+            data = event.get('data', {})
+            
+            if 'response_time' in data:
+                response_times.append(data['response_time'])
+            if 'results_count' in data:
+                results_counts.append(data['results_count'])
+            if 'query' in data:
+                queries[data['query']] += 1
+        
+        return {
+            'total_searches': len(searches),
+            'avg_response_time': round(statistics.mean(response_times), 3) if response_times else 0,
+            'avg_results_count': round(statistics.mean(results_counts), 1) if results_counts else 0,
+            'total_results_discovered': sum(results_counts),
+            'most_common_queries': dict(queries.most_common(10)),
+            'median_response_time': round(statistics.median(response_times), 3) if response_times else 0
+        }
     
-    def _summarize_security(self, start_time: float, end_time: float) -> Dict[str, Any]:
-        """Summarize security scan activity."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            
-            # Security scan counts by result
-            scan_results = conn.execute("""
-                SELECT JSON_EXTRACT(data, '$.scan_result') as result, COUNT(*) as count
-                FROM events 
-                WHERE event_type = 'security_scan' 
-                AND timestamp BETWEEN ? AND ?
-                GROUP BY JSON_EXTRACT(data, '$.scan_result')
-            """, (start_time, end_time)).fetchall()
-            
-            results_dict = {row['result']: row['count'] for row in scan_results}
-            total_scans = sum(results_dict.values())
-            
-            # Average scan time
-            avg_scan_time = conn.execute("""
-                SELECT AVG(CAST(JSON_EXTRACT(data, '$.scan_duration') AS REAL)) as avg_time
-                FROM events 
-                WHERE event_type = 'security_scan' 
-                AND timestamp BETWEEN ? AND ?
-            """, (start_time, end_time)).fetchone()
-            
-            return {
-                'total_scans': total_scans,
-                'safe_files': results_dict.get('safe', 0),
-                'suspicious_files': results_dict.get('suspicious', 0),
-                'malicious_files': results_dict.get('malicious', 0),
-                'threat_detection_rate': ((results_dict.get('suspicious', 0) + 
-                                         results_dict.get('malicious', 0)) / total_scans * 100) if total_scans > 0 else 0,
-                'average_scan_time': avg_scan_time['avg_time'] or 0
-            }
+    def _analyze_cache_statistics(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze cache performance per requirement 13.2."""
+        cache_hits = [e for e in events if e['event_type'] == 'cache_hit']
+        cache_misses = [e for e in events if e['event_type'] == 'cache_miss']
+        
+        total_cache_requests = len(cache_hits) + len(cache_misses)
+        hit_rate = (len(cache_hits) / total_cache_requests * 100) if total_cache_requests > 0 else 0
+        
+        # Analyze cache ages
+        cache_ages = []
+        for event in cache_hits:
+            age = event.get('data', {}).get('cache_age')
+            if age:
+                cache_ages.append(age)
+        
+        return {
+            'total_cache_requests': total_cache_requests,
+            'cache_hits': len(cache_hits),
+            'cache_misses': len(cache_misses),
+            'hit_rate_percent': round(hit_rate, 2),
+            'avg_cache_age_minutes': round(statistics.mean(cache_ages) / 60, 2) if cache_ages else 0,
+            'efficiency_score': round(hit_rate, 1)
+        }
     
-    def _summarize_performance(self, start_time: float, end_time: float) -> Dict[str, Any]:
-        """Summarize performance metrics."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            
-            # Average performance metrics
-            perf_stats = conn.execute("""
-                SELECT 
-                    AVG(cpu_usage) as avg_cpu,
-                    AVG(memory_usage) as avg_memory,
-                    AVG(download_speed) as avg_speed,
-                    AVG(active_connections) as avg_connections
-                FROM performance_history 
-                WHERE timestamp BETWEEN ? AND ?
-            """, (start_time, end_time)).fetchone()
-            
-            # Network condition distribution
-            network_stats = conn.execute("""
-                SELECT network_condition, COUNT(*) as count
-                FROM performance_history 
-                WHERE timestamp BETWEEN ? AND ?
-                GROUP BY network_condition
-            """, (start_time, end_time)).fetchall()
-            
-            network_dist = {row['network_condition']: row['count'] for row in network_stats}
-            
-            return {
-                'average_cpu_usage': perf_stats['avg_cpu'] or 0,
-                'average_memory_usage': perf_stats['avg_memory'] or 0,
-                'average_download_speed': perf_stats['avg_speed'] or 0,
-                'average_connections': perf_stats['avg_connections'] or 0,
-                'network_condition_distribution': network_dist
-            }
+    def _analyze_performance_metrics(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze overall performance metrics."""
+        # Time distribution analysis
+        if not events:
+            return {'events_per_hour': [], 'peak_hour': None, 'quiet_hour': None}
+        
+        # Group events by hour
+        hourly_counts = defaultdict(int)
+        for event in events:
+            hour = int(event['timestamp']) // 3600
+            hourly_counts[hour] += 1
+        
+        if hourly_counts:
+            peak_hour = max(hourly_counts.items(), key=lambda x: x[1])
+            quiet_hour = min(hourly_counts.items(), key=lambda x: x[1])
+        else:
+            peak_hour = quiet_hour = None
+        
+        return {
+            'events_per_hour': dict(hourly_counts),
+            'peak_hour': {'hour': peak_hour[0], 'events': peak_hour[1]} if peak_hour else None,
+            'quiet_hour': {'hour': quiet_hour[0], 'events': quiet_hour[1]} if quiet_hour else None,
+            'total_active_hours': len(hourly_counts)
+        }
     
-    def _summarize_errors(self, start_time: float, end_time: float) -> Dict[str, Any]:
-        """Summarize error occurrences."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            
-            # Total errors
-            total_errors = conn.execute("""
-                SELECT COUNT(*) as count FROM events 
-                WHERE event_type = 'error_occurred' 
-                AND timestamp BETWEEN ? AND ?
-            """, (start_time, end_time)).fetchone()['count']
-            
-            # Error types
-            error_types = conn.execute("""
-                SELECT JSON_EXTRACT(data, '$.error_type') as error_type, COUNT(*) as count
-                FROM events 
-                WHERE event_type = 'error_occurred' 
-                AND timestamp BETWEEN ? AND ?
-                GROUP BY JSON_EXTRACT(data, '$.error_type')
-                ORDER BY count DESC
-                LIMIT 10
-            """, (start_time, end_time)).fetchall()
-            
-            return {
-                'total_errors': total_errors,
-                'error_types': [(row['error_type'], row['count']) for row in error_types]
-            }
+    def _analyze_error_patterns(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze error patterns and frequencies."""
+        api_errors = [e for e in events if e['event_type'] == 'api_error']
+        download_errors = [e for e in events if e['event_type'] == 'download_failed']
+        
+        # Categorize API errors
+        api_error_types = Counter()
+        for event in api_errors:
+            error_type = event.get('data', {}).get('error_type', 'unknown')
+            api_error_types[error_type] += 1
+        
+        # Categorize download errors  
+        download_error_types = Counter()
+        for event in download_errors:
+            error_type = event.get('data', {}).get('error_type', 'unknown')
+            download_error_types[error_type] += 1
+        
+        total_errors = len(api_errors) + len(download_errors)
+        
+        return {
+            'total_errors': total_errors,
+            'api_errors': len(api_errors),
+            'download_errors': len(download_errors),
+            'api_error_types': dict(api_error_types),
+            'download_error_types': dict(download_error_types),
+            'most_common_error': api_error_types.most_common(1)[0][0] if api_error_types else None
+        }
     
-    def _analyze_trends(self, start_time: float, end_time: float) -> List[TrendAnalysis]:
-        """Analyze trends over time."""
-        trends = []
-        
-        # Split period into two halves for comparison
-        mid_time = start_time + (end_time - start_time) / 2
-        
-        # Analyze download success rate trend
-        first_half_success = self._calculate_success_rate(start_time, mid_time)
-        second_half_success = self._calculate_success_rate(mid_time, end_time)
-        
-        if first_half_success is not None and second_half_success is not None:
-            change = ((second_half_success - first_half_success) / first_half_success * 100) if first_half_success > 0 else 0
-            trends.append(self._create_trend_analysis(
-                "download_success_rate", second_half_success, first_half_success, change
-            ))
-        
-        # Analyze download speed trend
-        first_half_speed = self._calculate_avg_download_speed(start_time, mid_time)
-        second_half_speed = self._calculate_avg_download_speed(mid_time, end_time)
-        
-        if first_half_speed is not None and second_half_speed is not None:
-            change = ((second_half_speed - first_half_speed) / first_half_speed * 100) if first_half_speed > 0 else 0
-            trends.append(self._create_trend_analysis(
-                "download_speed", second_half_speed, first_half_speed, change
-            ))
-        
-        # Analyze error rate trend
-        first_half_errors = self._calculate_error_rate(start_time, mid_time)
-        second_half_errors = self._calculate_error_rate(mid_time, end_time)
-        
-        if first_half_errors is not None and second_half_errors is not None:
-            change = ((second_half_errors - first_half_errors) / first_half_errors * 100) if first_half_errors > 0 else 0
-            trends.append(self._create_trend_analysis(
-                "error_rate", second_half_errors, first_half_errors, change
-            ))
-        
-        return trends
-    
-    def _identify_patterns(self, start_time: float, end_time: float) -> List[UsagePattern]:
-        """Identify usage patterns."""
-        patterns = []
-        
-        # Peak usage hours
-        hourly_activity = self._analyze_hourly_activity(start_time, end_time)
-        if hourly_activity:
-            peak_hours = sorted(hourly_activity.items(), key=lambda x: x[1], reverse=True)[:3]
-            patterns.append(UsagePattern(
-                pattern_type="peak_hours",
-                description=f"Peak activity hours: {', '.join([f'{h}:00' for h, _ in peak_hours])}",
-                frequency=sum(count for _, count in peak_hours),
-                confidence=0.8,
-                recommendations=["Schedule maintenance during low-activity hours"]
-            ))
-        
-        # Batch download patterns
-        bulk_patterns = self._analyze_bulk_patterns(start_time, end_time)
-        if bulk_patterns:
-            patterns.extend(bulk_patterns)
-        
-        # Search patterns
-        search_patterns = self._analyze_search_patterns(start_time, end_time)
-        if search_patterns:
-            patterns.extend(search_patterns)
-        
-        return patterns
-    
-    def _generate_insights(self, start_time: float, end_time: float) -> List[PerformanceInsight]:
-        """Generate performance insights."""
-        insights = []
-        
-        # Download performance insights
-        avg_speed = self._calculate_avg_download_speed(start_time, end_time)
-        if avg_speed is not None:
-            benchmark_speed = self.performance_benchmark['download_speed']
-            if avg_speed < benchmark_speed * 0.8:  # 20% below benchmark
-                insights.append(PerformanceInsight(
-                    category="performance",
-                    metric="download_speed",
-                    current_value=avg_speed,
-                    benchmark_value=benchmark_speed,
-                    impact="negative",
-                    severity="warning",
-                    recommendation="Consider optimizing network settings or checking connection quality",
-                    estimated_improvement=(benchmark_speed - avg_speed) / avg_speed * 100
-                ))
-        
-        # Success rate insights
-        success_rate = self._calculate_success_rate(start_time, end_time)
-        if success_rate is not None:
-            benchmark_rate = self.performance_benchmark['success_rate']
-            if success_rate < benchmark_rate:
-                insights.append(PerformanceInsight(
-                    category="reliability",
-                    metric="success_rate",
-                    current_value=success_rate,
-                    benchmark_value=benchmark_rate,
-                    impact="negative",
-                    severity="critical" if success_rate < 80 else "warning",
-                    recommendation="Investigate download failures and improve error handling"
-                ))
-        
-        # Resource usage insights
-        avg_cpu, avg_memory = self._calculate_avg_resource_usage(start_time, end_time)
-        if avg_cpu is not None and avg_cpu > self.performance_benchmark['cpu_usage']:
-            insights.append(PerformanceInsight(
-                category="resources",
-                metric="cpu_usage",
-                current_value=avg_cpu,
-                benchmark_value=self.performance_benchmark['cpu_usage'],
-                impact="negative",
-                severity="warning",
-                recommendation="Consider reducing concurrent downloads or optimizing processing"
-            ))
-        
-        return insights
-    
-    def _generate_recommendations(self, trends: List[TrendAnalysis], 
-                                patterns: List[UsagePattern],
-                                insights: List[PerformanceInsight]) -> List[str]:
-        """Generate actionable recommendations."""
+    def _generate_recommendations(self, api_stats: Dict[str, Any], 
+                                 download_stats: Dict[str, Any],
+                                 cache_stats: Dict[str, Any],
+                                 performance: Dict[str, Any],
+                                 errors: Dict[str, Any]) -> List[str]:
+        """Generate actionable recommendations based on analysis."""
         recommendations = []
         
-        # Trend-based recommendations
-        for trend in trends:
-            if not trend.is_improving and trend.significance == "high":
-                if "success_rate" in trend.metric_name:
-                    recommendations.append("Investigate and address download failure causes")
-                elif "speed" in trend.metric_name:
-                    recommendations.append("Optimize network configuration for better performance")
-                elif "error" in trend.metric_name:
-                    recommendations.append("Implement better error handling and retry mechanisms")
+        # API recommendations
+        if api_stats['success_rate'] < 95:
+            recommendations.append(
+                f"API success rate is {api_stats['success_rate']}%. Consider implementing retry logic."
+            )
         
-        # Pattern-based recommendations
-        for pattern in patterns:
-            recommendations.extend(pattern.recommendations)
+        if api_stats['avg_response_time'] > 5.0:
+            recommendations.append(
+                f"Average API response time is {api_stats['avg_response_time']}s. Consider optimizing requests."
+            )
         
-        # Insight-based recommendations
-        critical_insights = [i for i in insights if i.severity == "critical"]
-        if critical_insights:
-            recommendations.append("Address critical performance issues immediately")
+        # Cache recommendations
+        if cache_stats['hit_rate_percent'] < 50:
+            recommendations.append(
+                f"Cache hit rate is only {cache_stats['hit_rate_percent']}%. Review caching strategy."
+            )
         
-        # General recommendations
-        if len(insights) > 3:
-            recommendations.append("Consider comprehensive performance optimization")
+        # Download recommendations
+        if download_stats['success_rate'] < 90:
+            recommendations.append(
+                f"Download success rate is {download_stats['success_rate']}%. Improve error handling."
+            )
         
-        return list(set(recommendations))  # Remove duplicates
+        if download_stats['avg_download_speed_mbps'] < 1.0:
+            recommendations.append(
+                "Download speeds are below 1 MB/s. Check network conditions or increase parallelism."
+            )
+        
+        # Error analysis recommendations
+        if errors['total_errors'] > 0:
+            if errors['most_common_error']:
+                recommendations.append(
+                    f"Most common error: '{errors['most_common_error']}'. Focus on resolving this issue."
+                )
+        
+        if not recommendations:
+            recommendations.append("System performance looks good. Continue monitoring.")
+        
+        return recommendations
     
-    def _prepare_charts_data(self, start_time: float, end_time: float) -> Dict[str, List[TimeSeriesData]]:
-        """Prepare time series data for charts."""
-        charts = {}
-        
-        # Download activity over time
-        charts['download_activity'] = self._get_download_activity_timeseries(start_time, end_time)
-        
-        # Performance metrics over time
-        charts['performance_metrics'] = self._get_performance_timeseries(start_time, end_time)
-        
-        # Success rate over time
-        charts['success_rate'] = self._get_success_rate_timeseries(start_time, end_time)
-        
-        return charts
-    
-    # Helper methods
-    def _create_trend_analysis(self, metric_name: str, current: float, 
-                             previous: float, change_percent: float) -> TrendAnalysis:
-        """Create trend analysis object."""
-        direction = "up" if change_percent > 0 else "down" if change_percent < 0 else "stable"
-        significance = "high" if abs(change_percent) > self.trend_significance_threshold else "medium" if abs(change_percent) > 2 else "low"
-        
-        return TrendAnalysis(
-            metric_name=metric_name,
-            current_value=current,
-            previous_value=previous,
-            change_percent=change_percent,
-            trend_direction=direction,
-            significance=significance
+    def _get_most_active_session(self, events: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Get the most active session information."""
+        session_counts = Counter(
+            event.get('session_id') for event in events 
+            if event.get('session_id')
         )
-    
-    def _calculate_success_rate(self, start_time: float, end_time: float) -> Optional[float]:
-        """Calculate download success rate for period."""
-        with sqlite3.connect(self.db_path) as conn:
-            result = conn.execute("""
-                SELECT 
-                    SUM(CASE WHEN event_type = 'download_completed' THEN 1 ELSE 0 END) as completed,
-                    SUM(CASE WHEN event_type = 'download_started' THEN 1 ELSE 0 END) as started
-                FROM events 
-                WHERE event_type IN ('download_started', 'download_completed')
-                AND timestamp BETWEEN ? AND ?
-            """, (start_time, end_time)).fetchone()
-            
-            completed = result[0] or 0
-            started = result[1] or 0
-            
-            if started > 0:
-                return (completed / started) * 100
+        
+        if not session_counts:
             return None
-    
-    def _calculate_avg_download_speed(self, start_time: float, end_time: float) -> Optional[float]:
-        """Calculate average download speed for period."""
-        with sqlite3.connect(self.db_path) as conn:
-            result = conn.execute("""
-                SELECT AVG(CAST(JSON_EXTRACT(data, '$.download_speed') AS REAL)) as avg_speed
-                FROM events 
-                WHERE event_type = 'download_completed'
-                AND timestamp BETWEEN ? AND ?
-                AND JSON_EXTRACT(data, '$.download_speed') IS NOT NULL
-            """, (start_time, end_time)).fetchone()
-            
-            return result[0] if result[0] is not None else None
-    
-    def _calculate_error_rate(self, start_time: float, end_time: float) -> Optional[float]:
-        """Calculate error rate for period."""
-        with sqlite3.connect(self.db_path) as conn:
-            result = conn.execute("""
-                SELECT 
-                    SUM(CASE WHEN event_type = 'error_occurred' THEN 1 ELSE 0 END) as errors,
-                    COUNT(*) as total
-                FROM events 
-                WHERE timestamp BETWEEN ? AND ?
-            """, (start_time, end_time)).fetchone()
-            
-            errors = result[0] or 0
-            total = result[1] or 0
-            
-            if total > 0:
-                return (errors / total) * 100
-            return None
-    
-    def _calculate_avg_resource_usage(self, start_time: float, end_time: float) -> Tuple[Optional[float], Optional[float]]:
-        """Calculate average CPU and memory usage."""
-        with sqlite3.connect(self.db_path) as conn:
-            result = conn.execute("""
-                SELECT AVG(cpu_usage), AVG(memory_usage)
-                FROM performance_history 
-                WHERE timestamp BETWEEN ? AND ?
-            """, (start_time, end_time)).fetchone()
-            
-            return result[0], result[1]
-    
-    def _count_unique_models(self, start_time: float, end_time: float) -> int:
-        """Count unique models downloaded."""
-        with sqlite3.connect(self.db_path) as conn:
-            result = conn.execute("""
-                SELECT COUNT(DISTINCT JSON_EXTRACT(data, '$.model_metadata.model_id')) as unique_models
-                FROM events 
-                WHERE event_type = 'download_completed'
-                AND timestamp BETWEEN ? AND ?
-                AND JSON_EXTRACT(data, '$.model_metadata.model_id') IS NOT NULL
-            """, (start_time, end_time)).fetchone()
-            
-            return result[0] or 0
-    
-    def _get_popular_queries(self, start_time: float, end_time: float) -> List[Tuple[str, int]]:
-        """Get popular search queries."""
-        with sqlite3.connect(self.db_path) as conn:
-            results = conn.execute("""
-                SELECT JSON_EXTRACT(data, '$.query') as query, COUNT(*) as count
-                FROM events 
-                WHERE event_type = 'search_performed'
-                AND timestamp BETWEEN ? AND ?
-                AND JSON_EXTRACT(data, '$.query') IS NOT NULL
-                GROUP BY JSON_EXTRACT(data, '$.query')
-                ORDER BY count DESC
-                LIMIT 10
-            """, (start_time, end_time)).fetchall()
-            
-            return [(row[0], row[1]) for row in results]
-    
-    def _analyze_hourly_activity(self, start_time: float, end_time: float) -> Dict[int, int]:
-        """Analyze activity by hour of day."""
-        with sqlite3.connect(self.db_path) as conn:
-            results = conn.execute("""
-                SELECT 
-                    CAST(strftime('%H', datetime(timestamp, 'unixepoch')) AS INTEGER) as hour,
-                    COUNT(*) as count
-                FROM events 
-                WHERE timestamp BETWEEN ? AND ?
-                GROUP BY hour
-            """, (start_time, end_time)).fetchall()
-            
-            return {row[0]: row[1] for row in results}
-    
-    def _analyze_bulk_patterns(self, start_time: float, end_time: float) -> List[UsagePattern]:
-        """Analyze bulk download patterns."""
-        patterns = []
         
-        with sqlite3.connect(self.db_path) as conn:
-            # Average bulk job size
-            avg_size = conn.execute("""
-                SELECT AVG(CAST(JSON_EXTRACT(data, '$.total_files') AS INTEGER)) as avg_size
-                FROM events 
-                WHERE event_type = 'bulk_job_created'
-                AND timestamp BETWEEN ? AND ?
-            """, (start_time, end_time)).fetchone()
-            
-            if avg_size[0] is not None and avg_size[0] > 10:
-                patterns.append(UsagePattern(
-                    pattern_type="large_bulk_jobs",
-                    description=f"Average bulk job size: {avg_size[0]:.1f} files",
-                    frequency=1,
-                    confidence=0.9,
-                    recommendations=["Consider optimizing batch sizes for better performance"]
-                ))
-        
-        return patterns
+        most_active = session_counts.most_common(1)[0]
+        return {
+            'session_id': most_active[0],
+            'event_count': most_active[1]
+        }
     
-    def _analyze_search_patterns(self, start_time: float, end_time: float) -> List[UsagePattern]:
-        """Analyze search patterns."""
-        patterns = []
+    def get_daily_summary(self, days: int = 7) -> Dict[str, Any]:
+        """Get daily summary for the last N days."""
+        end_time = time.time()
+        start_time = end_time - (days * 24 * 3600)
         
-        popular_queries = self._get_popular_queries(start_time, end_time)
-        if popular_queries and len(popular_queries) >= 3:
-            top_query = popular_queries[0]
-            patterns.append(UsagePattern(
-                pattern_type="popular_search",
-                description=f"Most popular search: '{top_query[0]}' ({top_query[1]} times)",
-                frequency=top_query[1],
-                confidence=0.8,
-                recommendations=["Consider caching popular search results"]
-            ))
+        report = self.generate_report(start_time, end_time)
         
-        return patterns
-    
-    def _get_download_activity_timeseries(self, start_time: float, end_time: float) -> List[TimeSeriesData]:
-        """Get download activity time series."""
-        time_series = []
-        
-        # Divide period into hourly buckets
-        current_time = start_time
-        hour_seconds = 3600
-        
-        with sqlite3.connect(self.db_path) as conn:
-            while current_time < end_time:
-                next_time = min(current_time + hour_seconds, end_time)
-                
-                count = conn.execute("""
-                    SELECT COUNT(*) FROM events 
-                    WHERE event_type = 'download_started'
-                    AND timestamp BETWEEN ? AND ?
-                """, (current_time, next_time)).fetchone()[0]
-                
-                time_series.append(TimeSeriesData(
-                    timestamp=current_time,
-                    value=float(count),
-                    label=datetime.fromtimestamp(current_time).strftime('%H:%M')
-                ))
-                
-                current_time = next_time
-        
-        return time_series
-    
-    def _get_performance_timeseries(self, start_time: float, end_time: float) -> List[TimeSeriesData]:
-        """Get performance metrics time series."""
-        time_series = []
-        
-        with sqlite3.connect(self.db_path) as conn:
-            results = conn.execute("""
-                SELECT timestamp, cpu_usage, memory_usage, download_speed
-                FROM performance_history 
-                WHERE timestamp BETWEEN ? AND ?
-                ORDER BY timestamp
-            """, (start_time, end_time)).fetchall()
-            
-            for row in results:
-                time_series.append(TimeSeriesData(
-                    timestamp=row[0],
-                    value=row[1],  # CPU usage
-                    label="CPU"
-                ))
-        
-        return time_series
-    
-    def _get_success_rate_timeseries(self, start_time: float, end_time: float) -> List[TimeSeriesData]:
-        """Get success rate time series."""
-        time_series = []
-        
-        # Calculate success rate in hourly windows
-        current_time = start_time
-        hour_seconds = 3600
-        
-        while current_time < end_time:
-            next_time = min(current_time + hour_seconds, end_time)
-            success_rate = self._calculate_success_rate(current_time, next_time)
-            
-            if success_rate is not None:
-                time_series.append(TimeSeriesData(
-                    timestamp=current_time,
-                    value=success_rate,
-                    label=datetime.fromtimestamp(current_time).strftime('%H:%M')
-                ))
-            
-            current_time = next_time
-        
-        return time_series
-
-
-if __name__ == "__main__":
-    # Test analytics analyzer
-    print("Testing Analytics Analyzer...")
-    
-    from core.analytics.collector import AnalyticsCollector
-    
-    collector = AnalyticsCollector()
-    analyzer = AnalyticsAnalyzer(collector)
-    
-    # Generate a test report
-    end_time = time.time()
-    start_time = end_time - (7 * 24 * 3600)  # 7 days
-    
-    report = analyzer.generate_report(start_time, end_time)
-    
-    print(f"Report ID: {report.report_id}")
-    print(f"Period: {report.time_period}")
-    print(f"Trends: {len(report.trends)}")
-    print(f"Patterns: {len(report.patterns)}")
-    print(f"Insights: {len(report.insights)}")
-    print(f"Recommendations: {len(report.recommendations)}")
-    
-    collector.stop()
-    print("Analytics Analyzer test completed.")
+        return {
+            'period': f"Last {days} days",
+            'summary': report.summary,
+            'key_metrics': {
+                'api_success_rate': report.api_statistics['success_rate'],
+                'download_success_rate': report.download_statistics['success_rate'],
+                'cache_hit_rate': report.cache_statistics['hit_rate_percent'],
+                'total_downloads': report.download_statistics['total_downloads'],
+                'total_data_gb': report.download_statistics['total_downloaded_gb']
+            },
+            'recommendations': report.recommendations[:3]  # Top 3 recommendations
+        }

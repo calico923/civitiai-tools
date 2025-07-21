@@ -399,6 +399,86 @@ class TestPerformanceOptimizer:
         self.optimizer.stop_monitoring()
         assert self.optimizer._monitoring is False
         mock_thread_instance.join.assert_called_once_with(timeout=5)
+    
+    @patch('psutil.cpu_percent')
+    @patch('psutil.virtual_memory')
+    @patch('psutil.net_io_counters')
+    def test_complex_adverse_conditions_parameter_stability(self, mock_net_io, mock_memory, mock_cpu):
+        """Test parameter adjustment stability under complex adverse conditions."""
+        # Setup: CPU high, memory high, network unstable (triple threat scenario)
+        mock_cpu.return_value = 95.0  # Very high CPU
+        mock_memory.return_value = Mock(percent=88.0)  # High memory usage
+        mock_net_io.return_value = Mock(
+            bytes_sent=1000000,
+            bytes_recv=500000,
+            packets_sent=1000,
+            packets_recv=800,
+            errin=50,  # High error rate - network issues
+            errout=30,
+            dropin=20,  # Packet drops
+            dropout=15
+        )
+        
+        # Start with moderate settings
+        self.optimizer.current_connections = 5
+        self.optimizer.current_chunk_size = 32768
+        
+        # Track parameter changes over multiple adjustment cycles
+        connection_history = []
+        chunk_size_history = []
+        
+        # Simulate multiple adjustment cycles under adverse conditions
+        for cycle in range(10):
+            # Update metrics with adverse conditions
+            self.optimizer.metrics.cpu_usage = 95.0
+            self.optimizer.metrics.memory_usage = 88.0
+            self.optimizer.metrics.network_condition = NetworkCondition.UNSTABLE
+            
+            # Add some speed variance to simulate network instability
+            unstable_speed = 100 * 1024 * (1.0 + 0.5 * (cycle % 3 - 1))  # Varies between 50KB/s to 150KB/s
+            self.optimizer.update_download_speed(unstable_speed, 1.0)
+            
+            # Perform adjustment
+            self.optimizer._adjust_parameters()
+            
+            # Record post-adjustment values
+            connection_history.append(self.optimizer.current_connections)
+            chunk_size_history.append(self.optimizer.current_chunk_size)
+            
+            # Ensure parameters stay within bounds
+            assert (self.optimizer.opt_config.min_connections <= 
+                   self.optimizer.current_connections <= 
+                   self.optimizer.opt_config.max_connections), \
+                   f"Connections out of bounds at cycle {cycle}: {self.optimizer.current_connections}"
+            
+            assert (self.optimizer.opt_config.min_chunk_size <= 
+                   self.optimizer.current_chunk_size <= 
+                   self.optimizer.opt_config.max_chunk_size), \
+                   f"Chunk size out of bounds at cycle {cycle}: {self.optimizer.current_chunk_size}"
+        
+        # Verify parameter stability - should converge to safe values
+        final_connections = connection_history[-1]
+        final_chunk_size = chunk_size_history[-1]
+        
+        # Under extreme adverse conditions, should converge to minimal safe values
+        assert final_connections == self.optimizer.opt_config.min_connections, \
+            "Should converge to minimum connections under adverse conditions"
+        
+        assert final_chunk_size <= self.optimizer.opt_config.min_chunk_size * 2, \
+            "Should converge to small chunk size under adverse conditions"
+        
+        # Check for oscillation - parameters shouldn't wildly swing back and forth
+        if len(connection_history) >= 5:
+            recent_connections = connection_history[-5:]
+            connection_variance = statistics.variance(recent_connections) if len(set(recent_connections)) > 1 else 0
+            assert connection_variance <= 2.0, \
+                f"Connection count shouldn't oscillate wildly: variance={connection_variance}, history={recent_connections}"
+        
+        # Verify the system reaches a stable state (last 3 cycles should be similar)
+        if len(connection_history) >= 3:
+            last_three_connections = connection_history[-3:]
+            assert max(last_three_connections) - min(last_three_connections) <= 1, \
+                "Should reach stable connection count in final cycles"
 
 
 class TestAdaptiveDownloadManager:

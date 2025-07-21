@@ -313,8 +313,8 @@ class TestAuthentication:
                 mock_api_auth.assert_called_once()
                 mock_web_auth.assert_called_once()
     
-    def test_secure_credential_storage(self):
-        """Test secure storage of credentials."""
+    def test_secure_credential_storage(self, tmp_path):
+        """Test secure storage of credentials using black-box testing."""
         auth_path = self.api_dir / "auth.py"
         spec = importlib.util.spec_from_file_location("auth", auth_path)
         auth_module = importlib.util.module_from_spec(spec)
@@ -324,7 +324,9 @@ class TestAuthentication:
         assert hasattr(auth_module, 'CredentialStore'), "CredentialStore class must exist"
         CredentialStore = auth_module.CredentialStore
         
-        store = CredentialStore()
+        # Use temporary directory for test storage
+        test_storage_path = tmp_path / "test_credentials"
+        store = CredentialStore(storage_path=test_storage_path)
         
         # Test secure storage
         test_credentials = {
@@ -336,17 +338,27 @@ class TestAuthentication:
         # Store credentials
         store.save_credentials(test_credentials)
         
-        # Verify credentials are not stored in plain text
-        stored_data = store._get_raw_storage()
-        if stored_data:
-            assert 'test_mock_secret_key_123' not in str(stored_data), "API key should not be in plain text"
-            assert 'testpass123' not in str(stored_data), "Password should not be in plain text"
+        # Black-box test: Read storage file directly to verify encryption
+        if test_storage_path.exists():
+            with open(test_storage_path, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+            
+            # Verify sensitive data is not in plain text
+            assert 'test_mock_secret_key_123' not in file_content, "API key should not be in plain text"
+            assert 'testpass123' not in file_content, "Password should not be in plain text"
+            assert 'testuser' not in file_content, "Username should not be in plain text"
+            
+            # Verify file is not empty (credentials are stored somehow)
+            assert len(file_content.strip()) > 0, "Storage file should contain encrypted data"
         
-        # Test retrieval
+        # Test retrieval works correctly
         retrieved = store.load_credentials()
         assert retrieved is not None, "Should retrieve credentials"
-        assert 'api_key' in retrieved, "Should have API key"
+        assert retrieved['api_key'] == test_credentials['api_key'], "API key should be correctly decrypted"
+        assert retrieved['username'] == test_credentials['username'], "Username should be correctly decrypted"
+        assert retrieved['password'] == test_credentials['password'], "Password should be correctly decrypted"
         
         # Test credential deletion
         store.delete_credentials()
         assert store.load_credentials() is None, "Credentials should be deleted"
+        assert not test_storage_path.exists(), "Storage file should be removed"

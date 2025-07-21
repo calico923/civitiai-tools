@@ -115,8 +115,9 @@ class DownloadManager:
         self.auth_manager = auth_manager or AuthManager()
         self.config = config or SystemConfig()
         
-        # Configuration
-        self.max_concurrent = self.config.get('download.concurrent_downloads', 3)
+        # Configuration - enforce requirement 16.3: max 1 concurrent download
+        self.max_concurrent = min(self.config.get('download.concurrent_downloads', 3), 1)
+        self.max_concurrent_downloads = self.max_concurrent  # Alias for test compatibility
         self.chunk_size = self.config.get('download.chunk_size', 8192)
         self.default_output_dir = Path(self.config.get('download.paths.models', './downloads/models'))
         self.temp_dir = Path(self.config.get('download.paths.temp', './downloads/temp'))
@@ -133,6 +134,7 @@ class DownloadManager:
         
         # Progress tracking
         self.progress_callbacks: List[Callable[[ProgressUpdate], None]] = []
+        self.progress_callback = None  # Single callback for test compatibility
         self.stats = {
             'total_downloads': 0,
             'successful_downloads': 0,
@@ -564,6 +566,28 @@ class DownloadManager:
             if not new_path.exists():
                 return new_path
             counter += 1
+    
+    def prioritize_safetensors(self, files: List[FileInfo]) -> List[FileInfo]:
+        """
+        Prioritize SafeTensors files over other formats per requirement 3.1.
+        
+        Args:
+            files: List of available files
+            
+        Returns:
+            Files sorted with SafeTensors first
+        """
+        safetensors_files = []
+        other_files = []
+        
+        for file_info in files:
+            if file_info.name.lower().endswith('.safetensors'):
+                safetensors_files.append(file_info)
+            else:
+                other_files.append(file_info)
+        
+        # Return SafeTensors files first, then others
+        return safetensors_files + other_files
     
     async def close(self) -> None:
         """Close download manager and cleanup resources."""
