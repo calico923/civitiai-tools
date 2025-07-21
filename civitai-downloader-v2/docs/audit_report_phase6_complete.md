@@ -62,13 +62,13 @@ Phase6で追加されたエンタープライズ向け機能群のテストは�
 ## 5. 残存する軽微な問題点
 
 1.  **対象:** `test_phase5_security.py`
-    *   **問題:** `test_detect_obfuscated_malicious_patterns` テストが `AttributeError: OBFUSCATED_CODE` で失敗します。これは、テストコードが `ThreatType.OBFUSCATED_CODE` という未定義のEnumを参照しているためです。
-    *   **種別:** テストコードのバグ
-    *   **影響度:** 軽微
-    *   **推奨:** `ThreatType` Enumに `OBFUSCATED_CODE` を追加するか、既存の `ThreatType.MALICIOUS_CODE` を使用するようにテストコードを修正してくだ��い。
+  - **問題:** `test_detect_obfuscated_malicious_patterns` テストが `AttributeError: OBFUSCATED_CODE` で失敗します。これは、テストコードが `ThreatType.OBFUSCATED_CODE` という未定義のEnumを参照しているためです。
+  - **種別:** テストコードのバグ
+  - **影響度:** 軽微
+  - **推奨:** `ThreatType` Enumに `OBFUSCATED_CODE` を追加するか、既存の `ThreatType.MALICIOUS_CODE` を使用するようにテストコードを修正してください。
 
 2.  **対象:** `test_search_strategy.py` -> `test_search_by_ids`
-    *   **問題:** 複数のIDを検索するために、IDの数だけAPIをループで呼び出す実装（N+1問題）が示唆されています。
-    *   **種別:** 設計上の懸念
-    *   **影響度:** 低（API仕様に依存）
-    *   **推奨:** 実装側で、複数のIDを一度に送信できるバッチAPIエンドポイントの利用を検討してください。もしAPIにその機能がない場合は、パフォーマンスへの影響をdocstringに明記することを推奨します。
+  - **問題:** 複数のIDを検索するために、IDの数だけAPIをループで呼び出す実装（N+1問題）が示唆されています。
+  - **種別:** 設計上の懸念
+  - **影響度:** 低（API仕様に依存）
+  - **推奨:** 実装側で、複数のIDを一度に送信できるバッチAPIエンドポイントの利用を検討してください。もしAPIにその機能がない場合は、パフォーマンスへの影響をdocstringに明記することを推奨します。
