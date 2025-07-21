@@ -352,16 +352,21 @@ class SearchStrategy:
         """
         Search for specific models by IDs.
         
-        Note: This implementation performs N API calls for N model IDs (N+1 problem).
+        PERFORMANCE WARNING: This implementation performs N API calls for N model IDs (N+1 problem).
         This is due to CivitAI API limitations - no batch endpoint is available for
-        fetching multiple models by ID. For large numbers of IDs, consider using
-        pagination-based search with filters instead.
+        fetching multiple models by ID. 
+        
+        **For large numbers of IDs (>10), performance will degrade significantly.**
+        Consider using pagination-based search with filters instead for bulk operations.
         
         Args:
-            model_ids: List of model IDs
+            model_ids: List of model IDs (recommended: <10 IDs for optimal performance)
             
         Returns:
             List of search results
+            
+        Raises:
+            Performance degradation for large ID lists due to sequential API calls
         """
         results = []
         headers = self.auth_manager.get_auth_headers()

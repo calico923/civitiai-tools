@@ -1,0 +1,204 @@
+# CivitAI Downloader v2 - Production Configuration
+
+# Application Settings
+app:
+  name: "CivitAI Downloader v2"
+  version: "2.0.0"
+  environment: "production"
+  debug: false
+  log_level: "INFO"
+
+# API Configuration
+api:
+  base_url: "https://civitai.com/api"
+  timeout: 30
+  retry_attempts: 3
+  retry_delay: 1.0
+  rate_limit:
+    requests_per_minute: 60
+    burst_size: 10
+
+# Download Settings
+download:
+  max_concurrent: 3
+  timeout: 300
+  chunk_size: 8192
+  verify_checksums: true
+  retry_failed: true
+  max_retries: 3
+
+  # Directory structure
+  base_directory: "/app/downloads"
+  organize_by_type: true
+  create_subdirectories: true
+
+  # File naming
+  use_original_names: true
+  sanitize_filenames: true
+  max_filename_length: 255
+
+# Security Configuration
+security:
+  enable_encryption: true
+  encryption_level: "standard"  # basic, standard, high, maximum
+  secure_storage: true
+  audit_enabled: true
+
+  # Access control
+  enable_access_control: true
+  default_policy: "default"
+  session_timeout: 3600
+
+  # Sandbox settings
+  enable_sandbox: true
+  sandbox_memory_limit: 256
+  sandbox_cpu_limit: 30
+
+# Database Configuration
+database:
+  type: "sqlite"  # sqlite, postgresql
+  path: "/app/data/database/civitai.db"
+  pool_size: 5
+  timeout: 30
+
+  # For PostgreSQL (when enabled)
+  # host: "postgres"
+  # port: 5432
+  # database: "civitai_downloader"
+  # username: "civitai"
+  # password_file: "/run/secrets/postgres_password"
+
+# Caching
+cache:
+  enabled: true
+  type: "file"  # file, redis, memory
+  directory: "/app/data/cache"
+  max_size_mb: 1000
+  ttl: 3600
+
+  # For Redis (when enabled)
+  # redis_host: "redis"
+  # redis_port: 6379
+  # redis_password: "${REDIS_PASSWORD}"
+
+# Logging
+logging:
+  level: "INFO"
+  format: "structured"  # simple, detailed, structured
+  directory: "/app/logs"
+  max_file_size: "100MB"
+  backup_count: 5
+
+  # Log rotation
+  rotate_daily: true
+  compress_old: true
+
+  # Specific loggers
+  loggers:
+    "src.core.download": "INFO"
+    "src.core.security": "WARNING"
+    "src.core.api": "INFO"
+    "src.core.reliability": "INFO"
+
+# Monitoring and Metrics
+monitoring:
+  enabled: true
+  metrics_enabled: true
+  health_check_interval: 30
+
+  # Performance thresholds
+  thresholds:
+    cpu_warning: 80
+    cpu_critical: 95
+    memory_warning: 80
+    memory_critical: 95
+    disk_warning: 80
+    disk_critical: 95
+
+  # Alerting
+  alerts:
+    enabled: true
+    webhook_url: "${ALERT_WEBHOOK_URL}"
+    email_enabled: false
+    email_smtp: "${SMTP_SERVER}"
+    email_recipients: []
+
+# UI Configuration
+ui:
+  enable_web_interface: false
+  web_port: 8080
+  web_host: "0.0.0.0"
+
+  # CLI settings
+  interactive_mode: true
+  progress_updates: true
+  color_output: true
+
+  # Export settings
+  default_export_format: "json"
+  enable_compression: true
+
+# Plugin System
+plugins:
+  enabled: true
+  directory: "/app/plugins"
+  auto_discovery: true
+  security_checks: true
+
+  # Plugin categories
+  model_processors: []
+  search_enhancers: []
+  export_formatters: []
+
+# Reliability Features
+reliability:
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 5
+    timeout: 60
+    half_open_max_calls: 3
+
+  health_monitoring:
+    enabled: true
+    check_interval: 30
+
+  uptime_monitoring:
+    enabled: true
+    target_availability: 99.5
+
+  integrity_checks:
+    enabled: true
+    check_interval: 3600
+    verify_downloads: true
+
+# Adaptability Features
+adaptability:
+  api_monitoring:
+    enabled: true
+    check_interval: 3600
+    auto_adapt: true
+
+  dynamic_types:
+    enabled: true
+    learning_enabled: true
+    confidence_threshold: 0.8
+
+  migration:
+    auto_migrate: true
+    backup_before_migration: true
+
+# Resource Limits
+limits:
+  max_memory_mb: 2048
+  max_cpu_percent: 100
+  max_disk_usage_mb: 10000
+  max_open_files: 1000
+  max_network_connections: 100
+
+# Development and Debug (disabled in production)
+development:
+  enabled: false
+  debug_mode: false
+  test_mode: false
+  mock_api: false
+  profile_performance: false
