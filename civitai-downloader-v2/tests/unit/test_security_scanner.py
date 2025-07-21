@@ -490,6 +490,7 @@ class TestEnums:
         assert ThreatType.INVALID_FORMAT.value == "invalid_format"
         assert ThreatType.HASH_MISMATCH.value == "hash_mismatch"
         assert ThreatType.SCAN_TIMEOUT.value == "scan_timeout"
+        assert ThreatType.OBFUSCATED_CODE.value == "obfuscated_code"
 
 
 if __name__ == "__main__":
