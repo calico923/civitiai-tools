@@ -10,12 +10,12 @@ from .migration import DataMigrator, MigrationManager
 from .dynamic_types import DynamicModelTypeManager
 
 __all__ = [
+    'APICapability',
     'APIChangeDetector',
-    'APICapability', 
-    'PluginManager',
-    'Plugin',
-    'PluginRegistry',
     'DataMigrator',
+    'DynamicModelTypeManager',
     'MigrationManager',
-    'DynamicModelTypeManager'
+    'Plugin',
+    'PluginManager',
+    'PluginRegistry'
 ]

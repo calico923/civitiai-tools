@@ -312,7 +312,7 @@ class InteractiveInterface:
                 else:
                     return int(raw_input)
             except ValueError:
-                raise ValueError("Please enter a valid number")
+                raise ValueError("Please enter a valid number") from None
         
         elif prompt.input_type == InputType.BOOLEAN:
             lower_input = raw_input.lower()

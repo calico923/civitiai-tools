@@ -10,13 +10,13 @@ from .integrity import IntegrityManager, FileIntegrity
 from .uptime_monitor import UptimeMonitor, AvailabilityTracker
 
 __all__ = [
+    'AvailabilityTracker',
     'CircuitBreaker',
     'CircuitState',
+    'FileIntegrity',
     'HealthChecker', 
     'HealthStatus',
-    'SystemHealth',
     'IntegrityManager',
-    'FileIntegrity',
-    'UptimeMonitor',
-    'AvailabilityTracker'
+    'SystemHealth',
+    'UptimeMonitor'
 ]

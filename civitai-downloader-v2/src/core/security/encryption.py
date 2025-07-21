@@ -96,7 +96,11 @@ class DataEncryption:
             key_store_path: Path to key storage file
         """
         self.config = config
-        self.key_store_path = key_store_path or Path("./encryption_keys.db")
+        self.key_store_path = key_store_path or Path.home() / ".config" / "civitai-downloader" / "encryption_keys.db"
+        
+        # Ensure secure directory creation
+        if not self.key_store_path.parent.exists():
+            self.key_store_path.parent.mkdir(parents=True, mode=0o700)
         
         # Key cache for performance
         self._key_cache: Dict[str, Any] = {}

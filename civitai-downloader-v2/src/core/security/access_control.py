@@ -489,11 +489,10 @@ class AccessController:
                 risk_score += 30
             
             # Check file restrictions for file operations
-            if action in [Permission.READ_FILE, Permission.WRITE_FILE, Permission.DELETE_FILE]:
-                if not self._check_file_restrictions(resource):
-                    has_permission = False
-                    policy_violations.append("File type not allowed")
-                    risk_score += 20
+            if action in [Permission.READ_FILE, Permission.WRITE_FILE, Permission.DELETE_FILE] and not self._check_file_restrictions(resource):
+                has_permission = False
+                policy_violations.append("File type not allowed")
+                risk_score += 20
             
             # Check resource limits
             if not self._check_resource_limits(user_id, action, context):
@@ -609,10 +608,7 @@ class AccessController:
         
         # Check disk usage
         current_usage = self._get_user_disk_usage(user_id)
-        if current_usage > self.policy.max_disk_usage_mb:
-            return False
-        
-        return True
+        return current_usage <= self.policy.max_disk_usage_mb
     
     def _calculate_risk_score(self, user_id: str, action: Permission, resource: str,
                             ip_address: Optional[str], context: Dict[str, Any]) -> int:
@@ -644,8 +640,8 @@ class AccessController:
         return min(risk, 100)  # Cap at 100
     
     def _hash_password(self, password: str, salt: bytes) -> str:
-        """Hash password with salt."""
-        return hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000).hex()
+        """Hash password with salt using OWASP recommended iterations."""
+        return hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 210000).hex()
     
     def _check_rate_limit(self, identifier: str, ip_address: Optional[str]) -> bool:
         """Check rate limiting for user or IP."""
