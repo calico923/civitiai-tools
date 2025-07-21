@@ -5,13 +5,11 @@ Tests actual implementation behavior and integration scenarios.
 """
 
 import json
-import os
 import sqlite3
 import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
