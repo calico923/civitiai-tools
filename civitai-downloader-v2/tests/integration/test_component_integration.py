@@ -9,6 +9,7 @@ rather than just implementation details (How).
 """
 
 import pytest
+import pytest_asyncio
 import asyncio
 import tempfile
 import time
@@ -20,13 +21,13 @@ import sqlite3
 from src.core.bulk.download_manager import BulkDownloadManager
 from src.core.download.manager import DownloadManager
 from src.core.performance.optimizer import PerformanceOptimizer
-from src.core.search.advanced_search import AdvancedSearchEngine
+from src.core.search.search_engine import AdvancedSearchEngine
 from src.core.security.scanner import SecurityScanner
 from src.core.reliability.health_check import HealthChecker
 from src.core.analytics.collector import AnalyticsCollector
 from src.core.security.audit import SecurityAuditor
 from src.data.database import DatabaseManager
-from src.api.client import CivitAIClient
+from src.api.client import CivitaiAPIClient
 
 
 class TestHighLoadOptimizationIntegration:
@@ -38,7 +39,7 @@ class TestHighLoadOptimizationIntegration:
     downloads are automatically throttled to maintain stability"
     """
     
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def integration_setup(self):
         """Setup integrated system components."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -46,23 +47,16 @@ class TestHighLoadOptimizationIntegration:
             
             # Initialize database
             db_path = temp_path / "test.db"
-            db_manager = DatabaseManager(str(db_path))
-            await db_manager.initialize()
+            db_manager = DatabaseManager(db_path)
             
             # Initialize core components
-            client = Mock(spec=CivitAIClient)
-            download_manager = DownloadManager(
-                client=client,
-                download_dir=temp_path / "downloads",
-                db_manager=db_manager
-            )
+            client = Mock(spec=CivitaiAPIClient)
+            download_manager = DownloadManager()
             
             performance_optimizer = PerformanceOptimizer()
             
             bulk_manager = BulkDownloadManager(
-                download_manager=download_manager,
-                performance_optimizer=performance_optimizer,
-                db_manager=db_manager
+                download_manager=download_manager
             )
             
             yield {
@@ -203,7 +197,7 @@ class TestSearchToDownloadIntegration:
     Tests USER BEHAVIOR: "Search for models, select results, download safely"
     """
     
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def search_download_setup(self):
         """Setup search and download integration."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -211,18 +205,13 @@ class TestSearchToDownloadIntegration:
             
             # Database setup
             db_path = temp_path / "integration.db"
-            db_manager = DatabaseManager(str(db_path))
-            await db_manager.initialize()
+            db_manager = DatabaseManager(db_path)
             
             # Components
-            client = Mock(spec=CivitAIClient)
+            client = Mock(spec=CivitaiAPIClient)
             search_engine = AdvancedSearchEngine(client=client, db_manager=db_manager)
             security_scanner = SecurityScanner()
-            download_manager = DownloadManager(
-                client=client,
-                download_dir=temp_path / "downloads",
-                db_manager=db_manager
-            )
+            download_manager = DownloadManager()
             
             yield {
                 'search_engine': search_engine,
@@ -385,7 +374,7 @@ class TestMonitoringIntegration:
     Test monitoring and analytics integration across components.
     """
     
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def monitoring_setup(self):
         """Setup monitoring integration."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -393,8 +382,7 @@ class TestMonitoringIntegration:
             
             # Database
             db_path = temp_path / "monitoring.db"
-            db_manager = DatabaseManager(str(db_path))
-            await db_manager.initialize()
+            db_manager = DatabaseManager(db_path)
             
             # Components
             health_checker = HealthChecker()
@@ -529,15 +517,10 @@ class TestErrorRecoveryIntegration:
             temp_path = Path(temp_dir)
             
             # Setup components
-            db_manager = DatabaseManager(str(temp_path / "test.db"))
-            await db_manager.initialize()
+            db_manager = DatabaseManager(temp_path / "test.db")
             
-            client = Mock(spec=CivitAIClient)
-            download_manager = DownloadManager(
-                client=client,
-                download_dir=temp_path / "downloads",
-                db_manager=db_manager
-            )
+            client = Mock(spec=CivitaiAPIClient)
+            download_manager = DownloadManager()
             
             optimizer = PerformanceOptimizer()
             

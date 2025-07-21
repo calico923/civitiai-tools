@@ -283,8 +283,16 @@ class ReDoSProtector:
         if thread.is_alive():
             # Thread is still running - timeout occurred
             # Note: We can't actually kill the thread in Python
-            # In production, consider using subprocess or other alternatives
+            # 
+            # FUTURE IMPROVEMENT (Gemini Recommendation):
+            # For more robust ReDoS protection, consider using multiprocessing:
+            #   - Execute regex in separate process instead of thread
+            #   - Processes can be forcibly terminated, preventing CPU exhaustion
+            #   - Example: multiprocessing.Process with terminate() method
+            #   - Trade-off: Increased overhead for process creation/communication
+            # 
             logger.warning("Regex operation timed out but thread may still be running")
+            logger.warning("Consider multiprocessing for more robust timeout handling")
             raise TimeoutException(f"Regex operation timed out after {timeout} seconds")
         
         if exception[0]:

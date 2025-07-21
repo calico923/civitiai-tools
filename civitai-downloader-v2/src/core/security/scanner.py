@@ -11,7 +11,10 @@ import pickle
 import ast
 import re
 import tempfile
+import logging
 from .redos_protection import ReDoSProtector, TimeoutException, safe_search
+
+logger = logging.getLogger(__name__)
 
 # Optional dependency
 try:
