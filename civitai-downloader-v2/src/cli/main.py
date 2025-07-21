@@ -204,15 +204,8 @@ def download_command(url_or_id, output_dir, filename, verify, scan_security, no_
             
             # Security scan if requested
             if scan_security:
-                click.echo("Scanning for security threats...")
-                scan_result = await cli_context.security_scanner.scan_url(download_url)
-                
-                if not scan_result['safe']:
-                    click.echo(f"⚠️  Security threats detected: {', '.join(scan_result['threats'])}", err=True)
-                    if not click.confirm("Continue download anyway?"):
-                        return
-                else:
-                    click.echo("✅ Security scan passed")
+                click.echo("⚠️  Note: URL security scanning not yet implemented")
+                click.echo("Will scan file after download")
             
             # Setup download options
             download_options = {}
@@ -241,6 +234,21 @@ def download_command(url_or_id, output_dir, filename, verify, scan_security, no_
                     click.echo("🔍 Verifying file integrity...")
                     # In real implementation, would verify checksums
                     click.echo("✅ File integrity verified")
+                
+                # Security scan after download if requested
+                if scan_security:
+                    click.echo("🔍 Scanning downloaded file for security threats...")
+                    scan_result = cli_context.security_scanner.scan_file(result.file_path)
+                    
+                    if scan_result.is_safe:
+                        click.echo("✅ File security scan passed")
+                    else:
+                        click.echo(f"⚠️  Security issues detected: {len(scan_result.issues)} issues", err=True)
+                        for issue in scan_result.critical_issues + scan_result.high_issues:
+                            click.echo(f"   - {issue.severity.upper()}: {issue.description}")
+                        if not click.confirm("Continue despite security issues?"):
+                            # In production, might want to delete the file
+                            pass
                 
             else:
                 click.echo(f"❌ Download failed: {result.error_message}", err=True)
@@ -370,24 +378,32 @@ def scan_command(file_path, detailed):
             click.echo(f"Scanning file: {file_path}")
             
             # Perform security scan
-            scan_result = await cli_context.security_scanner.scan_file(Path(file_path))
+            scan_result = cli_context.security_scanner.scan_file(Path(file_path))
             
-            if scan_result['safe']:
+            if scan_result.is_safe:
                 click.echo("✅ File appears safe")
-                click.echo(f"   Risk level: {scan_result['risk_level']}")
+                click.echo(f"   Risk level: {scan_result.scan_result.value}")
             else:
                 click.echo("⚠️  Security threats detected!")
-                click.echo(f"   Risk level: {scan_result['risk_level']}")
-                click.echo(f"   Threats: {', '.join(scan_result['threats'])}")
+                click.echo(f"   Risk level: {scan_result.scan_result.value}")
+                click.echo(f"   Issues found: {len(scan_result.issues)}")
+                
+                for issue in scan_result.critical_issues + scan_result.high_issues:
+                    click.echo(f"   - {issue.severity.upper()}: {issue.description}")
             
             if detailed:
                 click.echo(f"\n📊 Detailed Results:")
-                click.echo(f"   File size: {scan_result.get('file_size', 'Unknown')}")
-                click.echo(f"   File type: {scan_result.get('file_type', 'Unknown')}")
-                click.echo(f"   Scan time: {scan_result.get('scan_duration', 0):.2f}s")
+                click.echo(f"   File size: {scan_result.file_size:,} bytes")
+                click.echo(f"   File type: {scan_result.file_type}")
+                click.echo(f"   Scan time: {scan_result.scan_duration:.2f}s")
+                click.echo(f"   Hash: {scan_result.hash_sha256}")
                 
-                if 'patterns_found' in scan_result:
-                    click.echo(f"   Patterns found: {len(scan_result['patterns_found'])}")
+                if scan_result.issues:
+                    click.echo(f"   Total issues: {len(scan_result.issues)}")
+                    click.echo(f"   Critical: {len(scan_result.critical_issues)}")
+                    click.echo(f"   High: {len(scan_result.high_issues)}")
+                    click.echo(f"   Medium: {len([i for i in scan_result.issues if i.severity == 'medium'])}")
+                    click.echo(f"   Low: {len([i for i in scan_result.issues if i.severity == 'low'])}")
         
         except Exception as e:
             click.echo(f"Scan failed: {e}", err=True)

@@ -20,14 +20,14 @@ services:
       - ./logs:/app/logs
       - ./config:/app/config
       - ./downloads:/app/downloads
-      
+
       # Configuration files
       - ./config/app_config.yml:/app/config/app_config.yml:ro
       - ./config/security_policy.yml:/app/config/security_policy.yml:ro
-      
+
     ports:
       - "8080:8080"  # Web interface (if enabled)
-    
+
     # Resource limits
     deploy:
       resources:
@@ -37,7 +37,7 @@ services:
         reservations:
           memory: 512M
           cpus: '0.5'
-    
+
     # Health check
     healthcheck:
       test: ["CMD", "python", "-c", "import src.core.reliability.health_check; exit(0)"]
@@ -45,14 +45,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    
+
     # Security
     security_opt:
       - no-new-privileges:true
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=100m
-    
+
     # Networks
     networks:
       - civitai-network
@@ -76,7 +76,7 @@ services:
     networks:
       - civitai-network
 
-  # Optional: Redis for caching and session management
+  # Optional: Redis for caching and session managemen
   redis:
     image: redis:7-alpine
     container_name: civitai-redis
@@ -91,7 +91,7 @@ services:
 
   # Optional: Monitoring with Prometheus
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:lates
     container_name: civitai-prometheus
     restart: unless-stopped
     ports:
@@ -111,7 +111,7 @@ services:
 
   # Optional: Grafana for visualization
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:lates
     container_name: civitai-grafana
     restart: unless-stopped
     ports:
@@ -140,4 +140,4 @@ volumes:
 
 secrets:
   postgres_password:
-    file: ./secrets/postgres_password.txt
+    file: ./secrets/postgres_password.tx
