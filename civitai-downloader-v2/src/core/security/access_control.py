@@ -321,6 +321,8 @@ class AccessController:
         Returns:
             True if user created successfully
         """
+        import secrets
+        
         try:
             # Generate salt and hash password
             salt = secrets.token_bytes(32)
@@ -399,6 +401,7 @@ class AccessController:
                 salt = bytes.fromhex(salt_hex)
                 expected_hash = self._hash_password(password, salt)
                 
+                import secrets
                 if not secrets.compare_digest(stored_hash, expected_hash):
                     self._record_failed_attempt(username, ip_address, "invalid_password")
                     return None
