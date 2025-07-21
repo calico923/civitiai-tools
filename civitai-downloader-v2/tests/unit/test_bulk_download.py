@@ -250,6 +250,56 @@ class TestBulkDownloadManager:
         assert job.downloaded_files == 2
         assert job.failed_files == 1
     
+    @pytest.mark.asyncio
+    async def test_process_job_with_exceptions(self):
+        """Test job processing with exception handling."""
+        from core.download.exceptions import NetworkError, DiskFullError
+        
+        # Create mock search results
+        mock_results = self._create_mock_search_results(1, 3)
+        
+        # Create job
+        job_id = self.bulk_manager.create_bulk_job(mock_results, "Exception Test Job")
+        
+        # Mock start_download to raise exceptions
+        self.mock_download_manager.start_download = AsyncMock(
+            side_effect=[
+                True,  # First succeeds
+                NetworkError("Connection timeout"),  # Second throws NetworkError
+                DiskFullError("No space left on device")  # Third throws DiskFullError
+            ]
+        )
+        
+        # Mock successful task for first download
+        mock_task = Mock()
+        mock_task.status = DownloadStatus.COMPLETED
+        mock_task.final_path = Path("/tmp/test.safetensors")
+        mock_task.file_info.id = 1
+        mock_task.file_info.size = 1024
+        
+        self.mock_download_manager.get_task_status.return_value = mock_task
+        
+        # Mock security scan
+        mock_scan_report = Mock()
+        from core.security.scanner import ScanResult
+        mock_scan_report.scan_result = ScanResult.SAFE
+        self.mock_security_scanner.scan_file.return_value = mock_scan_report
+        
+        # Process job - should not crash despite exceptions
+        await self.bulk_manager._process_job(job_id)
+        
+        # Verify job handling exceptions gracefully
+        job = self.bulk_manager.jobs[job_id]
+        assert job.status == BulkStatus.FAILED, "Job should be marked as failed due to exceptions"
+        assert job.downloaded_files == 1, "Only first download should succeed"
+        assert job.failed_files == 2, "Two downloads should fail due to exceptions"
+        
+        # Verify error information is captured
+        assert len(job.error_details) >= 2, "Error details should be captured for exceptions"
+        error_messages = ' '.join(job.error_details)
+        assert "NetworkError" in error_messages or "Connection timeout" in error_messages
+        assert "DiskFullError" in error_messages or "No space left" in error_messages
+    
     def test_pause_and_resume_job(self):
         """Test pausing and resuming a job."""
         # Create and start a job

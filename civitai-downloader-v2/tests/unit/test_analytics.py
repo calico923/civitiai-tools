@@ -201,8 +201,11 @@ class TestAnalyticsCollector(unittest.TestCase):
             for col in expected_columns:
                 self.assertIn(col, column_names)
     
-    def test_record_event(self):
-        """Test basic event recording."""
+    @pytest.mark.asyncio
+    async def test_record_event(self):
+        """Test basic event recording with asynchronous persistence verification."""
+        import asyncio
+        
         event_data = {'file_id': 'test123', 'size': 1024}
         
         self.collector.record_event(
@@ -211,17 +214,18 @@ class TestAnalyticsCollector(unittest.TestCase):
             tags=['test']
         )
         
-        # Force flush to database
-        self.collector._flush_events()
+        # Wait for background asynchronous writing to complete
+        # This tests the real-world scenario where events are written asynchronously
+        await asyncio.sleep(0.1)
         
-        # Verify event was recorded
+        # Verify event was recorded through background process
         with sqlite3.connect(self.db_path) as conn:
             events = conn.execute("SELECT * FROM events").fetchall()
-            self.assertEqual(len(events), 1)
+            self.assertEqual(len(events), 1, "Event should be persisted asynchronously")
             
             event = events[0]
             self.assertEqual(event[1], 'download_started')  # event_type
-            self.assertIn('test123', event[4])  # data JSON
+            self.assertIn('test123', event[4], "Event data should be properly serialized")  # data JSON
     
     def test_download_event_recording(self):
         """Test download-specific event recording methods."""

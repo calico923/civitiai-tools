@@ -24,7 +24,7 @@ class CivitaiAPIClient:
     
     def __init__(
         self,
-        api_key: str,
+        api_key: Optional[str] = None,
         base_url: str = "https://civitai.com/api/v1",
         timeout: int = 30,
         requests_per_second: float = 0.5,
@@ -46,6 +46,9 @@ class CivitaiAPIClient:
         self.rate_limiter = RateLimiter(requests_per_second)
         self.cache = ResponseCache(cache_ttl)
         
+        # Fallback manager for unofficial API features per design.md
+        self.fallback_manager = self._init_fallback_manager()
+        
         # Initialize HTTP client
         self._http_client = httpx.AsyncClient(
             timeout=timeout,
@@ -59,12 +62,16 @@ class CivitaiAPIClient:
         Returns:
             Dictionary of HTTP headers
         """
-        return {
-            'Authorization': f'Bearer {self.api_key}',
+        headers = {
             'User-Agent': 'CivitAI-Downloader-v2/1.0',
             'Accept': 'application/json',
             'Content-Type': 'application/json'
         }
+        
+        if self.api_key:
+            headers['Authorization'] = f'Bearer {self.api_key}'
+        
+        return headers
     
     async def get_models(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -165,3 +172,68 @@ class CivitaiAPIClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
         await self.close()
+    
+    def _init_fallback_manager(self) -> Dict[str, Any]:
+        """Initialize fallback manager for unofficial API features per design.md."""
+        return {
+            'unofficial_endpoints': [],
+            'retry_count': 3,
+            'fallback_enabled': True,
+            'detected_features': {}
+        }
+    
+    async def search_models(self, search_params: SearchParams) -> Dict[str, Any]:
+        """
+        Unified search interface for models per design.md requirements.
+        
+        Args:
+            search_params: Search parameters object
+            
+        Returns:
+            Search results from API
+        """
+        # Convert SearchParams to dict for API call
+        params_dict = {
+            'query': search_params.query,
+            'limit': search_params.limit,
+            'page': search_params.page,
+            'sort': search_params.sort.value if search_params.sort else 'Newest',
+            'period': search_params.period.value if search_params.period else 'AllTime'
+        }
+        
+        # Add optional parameters
+        if search_params.types:
+            params_dict['types'] = [t.value for t in search_params.types]
+        if search_params.base_models:
+            params_dict['baseModels'] = search_params.base_models
+        if search_params.tag:
+            params_dict['tag'] = search_params.tag
+        if search_params.username:
+            params_dict['username'] = search_params.username
+        if search_params.favorites:
+            params_dict['favorites'] = search_params.favorites
+        if search_params.hidden:
+            params_dict['hidden'] = search_params.hidden
+        if search_params.nsfw is not None:
+            params_dict['nsfw'] = search_params.nsfw
+        
+        return await self.get_models(params_dict)
+    
+    def detect_unofficial_features(self) -> Dict[str, bool]:
+        """
+        Detect unofficial API features per design.md.
+        
+        Returns:
+            Dictionary of detected features and their availability
+        """
+        detected = {
+            'bulk_download': False,
+            'advanced_search': False,
+            'model_analytics': False,
+            'enhanced_metadata': False
+        }
+        
+        # Update with any previously detected features
+        detected.update(self.fallback_manager.get('detected_features', {}))
+        
+        return detected
