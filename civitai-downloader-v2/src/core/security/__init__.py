@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Security module for CivitAI Downloader.
-Implements requirements 9 and 14: Security scanning, license management, and privacy protection.
+Implements requirements 9, 14, and 18: Security scanning, license management, privacy protection, and enhanced security.
 """
 
 from .license_manager import (
@@ -31,6 +31,12 @@ from .scanner import (
     ThreatType
 )
 
+# Phase 6.3: Enhanced Security Components
+from .audit import SecurityAuditor, AuditEvent, AuditLevel
+from .sandbox import SecureSandbox, SandboxConfig
+from .encryption import DataEncryption, EncryptionLevel
+from .access_control import AccessController, Permission, SecurityPolicy
+
 __all__ = [
     # New security components (Phase 5)
     'LicenseManager',
@@ -50,5 +56,16 @@ __all__ = [
     'ScanReport',
     'SecurityIssue',
     'ScanResult',
-    'ThreatType'
+    'ThreatType',
+    # Phase 6.3: Enhanced Security
+    'SecurityAuditor',
+    'AuditEvent',
+    'AuditLevel',
+    'SecureSandbox',
+    'SandboxConfig',
+    'DataEncryption',
+    'EncryptionLevel',
+    'AccessController',
+    'Permission',
+    'SecurityPolicy'
 ]
