@@ -84,172 +84,175 @@ security:
 ### 3. 基本的な使用方法
 
 ```bash
-# モデルを検索して表示
-python -m src.cli.main search "アニメキャラクター" --limit 10
+# モデルを検索して表示（検索語は英語で）
+python -m src.cli.main search "anime character" --limit 10
 
 # 特定のモデルをダウンロード
 python -m src.cli.main download --model-id 12345
 
-# 検索結果からバルクダウンロード
-python -m src.cli.main bulk-download "スタイルLORA" --limit 50 --format safetensors
+# モデル情報を表示
+python -m src.cli.main info 12345
 
-# 分析レポートを生成
-python -m src.cli.main analytics --period 7d --format html
+# ローカルファイルをスキャン
+python -m src.cli.main scan path/to/model.safetensors
+
+# 設定を表示
+python -m src.cli.main config --list
 ```
 
 ## 📖 完全使用ガイド
+
+> **📝 注意**: 検索キーワードは英語で入力してください。CivitAI APIは英語での検索に最適化されています。
 
 ### 🔍 検索操作
 
 #### 基本検索
 ```bash
-# クエリで検索
-python -m src.cli.main search "サイバーパンクスタイル"
+# クエリで検索（検索語は英語）
+python -m src.cli.main search "cyberpunk style" --limit 10
 
 # モデルタイプでフィルタ  
-python -m src.cli.main search "キャラクター" --types Checkpoint,LORA
+python -m src.cli.main search "character" --types Checkpoint,LORA --limit 10
 
-# ベースモデルでフィルタ
-python -m src.cli.main search "アニメ" --base-models "Illustrious,NoobAI"
+# 複数キーワードで検索
+python -m src.cli.main search "anime portrait" --limit 5
 
-# 高度なフィルタリング
-python -m src.cli.main search "ポートレート" \
-    --categories character,style \
-    --min-downloads 1000 \
-    --period Month \
-    --sort "Most Downloaded"
+# 検索結果をテーブル形式で表示
+python -m src.cli.main search "landscape" --limit 5 --format table
+
+# NSFW含む検索
+python -m src.cli.main search "style" --nsfw --limit 5
 ```
 
 #### 検索結果のエクスポート
 ```bash
-# さまざまな形式でエクスポート
-python -m src.cli.main search "メカ" --export json --output mecha_models.json
-python -m src.cli.main search "風景" --export csv --output landscapes.csv
-python -m src.cli.main search "ファンタジー" --export html --output fantasy_report.html
+# JSON形式で保存
+python -m src.cli.main search "mecha" --limit 20 --output mecha_models.json
+
+# 検索結果の詳細表示
+python -m src.cli.main search "fantasy" --limit 10 --format json
+
+# シンプル形式で表示  
+python -m src.cli.main search "landscape" --limit 5 --format simple
 ```
 
 ### 📥 ダウンロード操作
 
-#### シングルダウンロード
+#### 単体ダウンロード
 ```bash
 # モデルIDでダウンロード
-python -m src.cli.main download --model-id 123456
+python -m src.cli.main download 123456
 
-# 特定のバージョンをダウンロード
-python -m src.cli.main download --model-id 123456 --version-id 789
+# モデル情報を詳しく表示
+python -m src.cli.main info 123456
 
-# カスタムディレクトリにダウンロード
-python -m src.cli.main download --model-id 123456 --output-dir ./custom_models/
+# モデル情報を詳細表示してからダウンロード
+python -m src.cli.main info 123456 --detailed
+python -m src.cli.main download 123456
 ```
 
-#### バルクダウンロード
+#### ファイル管理・セキュリティ
 ```bash
-# 検索からバルクダウンロード
-python -m src.cli.main bulk-download "アニメキャラクター" \
-    --limit 100 \
-    --batch-size 10 \
-    --priority HIGH
+# ローカルファイルをスキャン
+python -m src.cli.main scan ./downloads/model.safetensors
 
-# 失敗したバルクダウンロードを再開
-python -m src.cli.main bulk-resume --job-id bulk_20250122_001
+# 詳細なスキャン結果を表示
+python -m src.cli.main scan ./downloads/model.safetensors --detailed
 
-# バルクダウンロードの進行状況を監視
-python -m src.cli.main bulk-status --job-id bulk_20250122_001
+# ダウンロードディレクトリの全ファイルをスキャン
+find ./downloads -name "*.safetensors" -exec python -m src.cli.main scan {} \;
 ```
 
-#### 高度なダウンロードオプション
-```bash
-# セキュリティ重視のダウンロード
-python -m src.cli.main download --model-id 123456 \
-    --scan-before-download \
-    --verify-hashes \
-    --require-safetensors
-
-# パフォーマンス最適化されたダウンロード
-python -m src.cli.main download --model-id 123456 \
-    --optimization-mode adaptive \
-    --concurrent-chunks 8
-```
-
-### 📊 分析・レポート機能
-
-#### レポート生成
-```bash
-# クイック分析サマリー
-python -m src.cli.main analytics
-
-# 特定期間の詳細レポート
-python -m src.cli.main analytics --period 30d --format html --output monthly_report.html
-
-# パフォーマンス分析
-python -m src.cli.main analytics --type performance --show-recommendations
-
-# 使用統計
-python -m src.cli.main analytics --type usage --group-by model_type,base_model
-```
-
-#### システム監視
-```bash
-# システムヘルスチェック
-python -m src.cli.main health-check
-
-# パフォーマンス指標
-python -m src.cli.main metrics --live
-
-# ログを表示
-python -m src.cli.main logs --level ERROR --tail 100
-```
-
-### 🔧 管理操作
-
-#### データベース管理
-```bash
-# データベース状況
-python -m src.cli.main db-status
-
-# 孤立レコードのクリーンアップ
-python -m src.cli.main db-cleanup
-
-# データベースをエクスポート/バックアップ
-python -m src.cli.main db-export --output backup_20250122.sql
-```
-
-#### セキュリティ操作
-```bash
-# ダウンロードファイルをスキャン
-python -m src.cli.main security-scan --directory ./downloads/
-
-# 最近のダウンロードを監査
-python -m src.cli.main security-audit --days 7
-
-# セキュリティシグネチャを更新
-python -m src.cli.main security-update
-```
-
-### ⚙️ 設定管理
-
-#### 設定表示
+#### 設定管理
 ```bash
 # 現在の設定を表示
-python -m src.cli.main config show
+python -m src.cli.main config --list
 
-# 設定を検証
-python -m src.cli.main config validate
+# 特定の設定値を取得
+python -m src.cli.main config --get api.base_url
 
-# API接続をテスト
-python -m src.cli.main config test-connection
+# 設定値を変更
+python -m src.cli.main config --set "download.max_concurrent=5"
+
+# 設定ファイルを編集
+python -m src.cli.main config --edit
 ```
 
-#### 設定更新
+### 🔧 システム管理
+
+#### バージョン・システム情報
 ```bash
-# ダウンロードディレクトリを更新
-python -m src.cli.main config set download.base_directory ./new_downloads/
+# バージョン情報を表示
+python -m src.cli.main version
 
-# デバッグロギングを有効化
-python -m src.cli.main config set logging.level DEBUG
+# システム情報（詳細）
+python -m src.cli.main version --detailed
 
-# レート制限を設定
-python -m src.cli.main config set api.rate_limit 0.2
+# 利用可能なコマンド一覧
+python -m src.cli.main --help
+```
+
+#### 実用的な使用例
+```bash
+# 人気のアニメスタイルモデルを検索
+python -m src.cli.main search "anime style" --limit 10 --format table
+
+# ポートレート用モデルを探す
+python -m src.cli.main search "portrait" --types LORA --limit 5
+
+# 特定モデルの詳細情報を取得
+python -m src.cli.main info 1800398
+
+# 検索結果をJSONで保存
+python -m src.cli.main search "cyberpunk" --limit 20 --output cyberpunk_models.json
+```
+
+### 📚 実践的なワークフロー例
+
+#### 1. 新しいプロジェクト用にモデルを探す
+```bash
+# 1. まずアニメスタイルのCheckpointモデルを検索
+python -m src.cli.main search "anime checkpoint" --types Checkpoint --limit 10 --format table
+
+# 2. 気になるモデルの詳細を確認
+python -m src.cli.main info 1800398
+
+# 3. モデルをダウンロード
+python -m src.cli.main download 1800398
+
+# 4. ダウンロードしたファイルをスキャン
+python -m src.cli.main scan downloads/model_name.safetensors
+```
+
+#### 2. 特定スタイル用のLoRAを収集
+```bash
+# 1. ポートレート用のLoRAを検索
+python -m src.cli.main search "portrait style" --types LORA --limit 15 --format table
+
+# 2. 結果をJSONで保存
+python -m src.cli.main search "portrait style" --types LORA --limit 30 --output portrait_loras.json
+
+# 3. 複数のモデル情報を確認
+python -m src.cli.main info 1796682
+python -m src.cli.main info 1796959
+```
+
+#### 3. システムメンテナンス
+```bash
+# 1. 設定の確認
+python -m src.cli.main config --list
+
+# 2. ダウンロードディレクトリの確認
+ls -la downloads/
+
+# 3. ファイルの整合性チェック
+find downloads/ -name "*.safetensors" | head -5 | while read file; do 
+    echo "Scanning: $file"
+    python -m src.cli.main scan "$file"
+done
+
+# 4. 設定の調整
+python -m src.cli.main config --set "download.max_concurrent=3"
 ```
 
 ## 🏗️ 高度な使用方法
