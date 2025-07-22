@@ -149,16 +149,24 @@ def search_command(query, nsfw, types, sort, limit, output, output_format):
             click.echo(output_data)
         elif output_format == 'simple':
             for result in results:
-                click.echo(f"{result.id}: {result.name}")
+                # Handle dict format from API
+                result_id = result.get("id", "N/A")
+                result_name = result.get("name", "Unknown")
+                click.echo(f"{result_id}: {result_name}")
         else:  # table format
             click.echo(f"\nFound {len(results)} results:\n")
             click.echo(f"{'ID':<8} {'Name':<40} {'Type':<15} {'Downloads':<10}")
             click.echo("-" * 80)
             
             for result in results:
-                name = result.name[:37] + "..." if len(result.name) > 40 else result.name
-                downloads = result.stats.download_count if result.stats else 0
-                click.echo(f"{result.id:<8} {name:<40} {result.type:<15} {downloads:<10}")
+                # Handle dict format from API
+                result_name = result.get("name", "Unknown")
+                name = result_name[:37] + "..." if len(result_name) > 40 else result_name
+                result_id = result.get("id", 0)
+                result_type = result.get("type", "Unknown")
+                stats = result.get("stats", {})
+                downloads = stats.get("downloadCount", 0) if isinstance(stats, dict) else 0
+                click.echo(f"{result_id:<8} {name:<40} {result_type:<15} {downloads:<10}")
         
         # Save to file if requested
         if output:

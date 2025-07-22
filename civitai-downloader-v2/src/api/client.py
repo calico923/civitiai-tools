@@ -188,7 +188,7 @@ class CivitaiAPIClient:
             'detected_features': {}
         }
     
-    async def search_models(self, search_params: SearchParams) -> Dict[str, Any]:
+    async def search_models(self, search_params: SearchParams) -> List[Dict[str, Any]]:
         """
         Unified search interface for models per design.md requirements.
         
@@ -196,12 +196,17 @@ class CivitaiAPIClient:
             search_params: Search parameters object
             
         Returns:
-            Search results from API
+            List of model objects from API response
         """
         # Convert SearchParams to dict for API call
         params_dict = search_params.to_api_params()
         
-        return await self.get_models(params_dict)
+        # Get full API response
+        api_response = await self.get_models(params_dict)
+        
+        # Extract items array from API response
+        # CivitAI API returns: {"items": [...], "metadata": {...}}
+        return api_response.get("items", [])
     
     def detect_unofficial_features(self) -> Dict[str, bool]:
         """
