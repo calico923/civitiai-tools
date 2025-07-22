@@ -146,13 +146,14 @@ class TestBulkDownloadManager:
         assert len(self.bulk_manager.active_jobs) == 0
         assert self.bulk_manager.stats['total_jobs'] == 0
     
-    def test_create_bulk_job(self):
+    @pytest.mark.asyncio
+    async def test_create_bulk_job(self):
         """Test creating a bulk download job."""
         # Create mock search results
         mock_results = self._create_mock_search_results(2, 3)  # 2 models, 3 files each
         
         # Create job
-        job_id = self.bulk_manager.create_bulk_job(
+        job_id = await self.bulk_manager.create_bulk_job(
             search_results=mock_results,
             name="Test Bulk Job",
             options={'test': True}
@@ -176,7 +177,7 @@ class TestBulkDownloadManager:
         mock_results = self._create_mock_search_results(1, 2)  # 1 model, 2 files
         
         # Create job
-        job_id = self.bulk_manager.create_bulk_job(mock_results, "Test Job")
+        job_id = await self.bulk_manager.create_bulk_job(mock_results, "Test Job")
         
         # Mock successful downloads
         mock_task = Mock()
@@ -212,7 +213,7 @@ class TestBulkDownloadManager:
         mock_results = self._create_mock_search_results(1, 3)
         
         # Create job
-        job_id = self.bulk_manager.create_bulk_job(mock_results, "Test Job")
+        job_id = await self.bulk_manager.create_bulk_job(mock_results, "Test Job")
         
         # Mock mixed results
         self.mock_download_manager.start_download = AsyncMock(
@@ -253,13 +254,18 @@ class TestBulkDownloadManager:
     @pytest.mark.asyncio
     async def test_process_job_with_exceptions(self):
         """Test job processing with exception handling."""
-        from core.download.exceptions import NetworkError, DiskFullError
+        # Use standard exceptions instead of custom ones
+        class NetworkError(Exception):
+            pass
+        
+        class DiskFullError(Exception):
+            pass
         
         # Create mock search results
         mock_results = self._create_mock_search_results(1, 3)
         
         # Create job
-        job_id = self.bulk_manager.create_bulk_job(mock_results, "Exception Test Job")
+        job_id = await self.bulk_manager.create_bulk_job(mock_results, "Exception Test Job")
         
         # Mock start_download to raise exceptions
         self.mock_download_manager.start_download = AsyncMock(
@@ -295,16 +301,17 @@ class TestBulkDownloadManager:
         assert job.failed_files == 2, "Two downloads should fail due to exceptions"
         
         # Verify error information is captured
-        assert len(job.error_details) >= 2, "Error details should be captured for exceptions"
-        error_messages = ' '.join(job.error_details)
+        assert len(job.errors) >= 2, "Error details should be captured for exceptions"
+        error_messages = ' '.join(str(error) for error in job.errors)
         assert "NetworkError" in error_messages or "Connection timeout" in error_messages
         assert "DiskFullError" in error_messages or "No space left" in error_messages
     
-    def test_pause_and_resume_job(self):
+    @pytest.mark.asyncio
+    async def test_pause_and_resume_job(self):
         """Test pausing and resuming a job."""
         # Create and start a job
         mock_results = self._create_mock_search_results(1, 2)
-        job_id = self.bulk_manager.create_bulk_job(mock_results)
+        job_id = await self.bulk_manager.create_bulk_job(mock_results)
         
         # Set job as processing
         job = self.bulk_manager.jobs[job_id]
@@ -312,22 +319,23 @@ class TestBulkDownloadManager:
         job.download_tasks = {'file1': 'task1', 'file2': 'task2'}
         
         # Test pause
-        result = self.bulk_manager.pause_job(job_id)
+        result = await self.bulk_manager.pause_job(job_id)
         assert result is True
         assert job.status == BulkStatus.PAUSED
         assert self.mock_download_manager.pause_download.call_count == 2
         
         # Test resume
-        result = self.bulk_manager.resume_job(job_id)
+        result = await self.bulk_manager.resume_job(job_id)
         assert result is True
         assert job.status == BulkStatus.PROCESSING
         assert self.mock_download_manager.resume_download.call_count == 2
     
-    def test_cancel_job(self):
+    @pytest.mark.asyncio
+    async def test_cancel_job(self):
         """Test cancelling a job."""
         # Create job
         mock_results = self._create_mock_search_results(1, 2)
-        job_id = self.bulk_manager.create_bulk_job(mock_results)
+        job_id = await self.bulk_manager.create_bulk_job(mock_results)
         
         # Set job as processing
         job = self.bulk_manager.jobs[job_id]
@@ -384,7 +392,8 @@ class TestBulkDownloadManager:
         assert file_infos[0].metadata['model_id'] == 123
         assert file_infos[0].metadata['model_name'] == "Test Model"
     
-    def test_progress_callbacks(self):
+    @pytest.mark.asyncio
+    async def test_progress_callbacks(self):
         """Test progress callback functionality."""
         callback_data = []
         
@@ -406,7 +415,8 @@ class TestBulkDownloadManager:
         
         assert len(callback_data) == 1  # No new data
     
-    def test_completion_callbacks(self):
+    @pytest.mark.asyncio
+    async def test_completion_callbacks(self):
         """Test completion callback functionality."""
         completed_jobs = []
         
@@ -418,7 +428,7 @@ class TestBulkDownloadManager:
         
         # Create and complete a job
         mock_results = self._create_mock_search_results(1, 1)
-        job_id = self.bulk_manager.create_bulk_job(mock_results)
+        job_id = await self.bulk_manager.create_bulk_job(mock_results)
         job = self.bulk_manager.jobs[job_id]
         
         # Trigger completion callbacks
@@ -428,13 +438,14 @@ class TestBulkDownloadManager:
         assert len(completed_jobs) == 1
         assert completed_jobs[0] == job
     
-    def test_get_statistics(self):
+    @pytest.mark.asyncio
+    async def test_get_statistics(self):
         """Test getting bulk download statistics."""
         # Create some jobs
         mock_results = self._create_mock_search_results(1, 1)
         
-        job1_id = self.bulk_manager.create_bulk_job(mock_results, "Job 1")
-        job2_id = self.bulk_manager.create_bulk_job(mock_results, "Job 2")
+        job1_id = await self.bulk_manager.create_bulk_job(mock_results, "Job 1")
+        job2_id = await self.bulk_manager.create_bulk_job(mock_results, "Job 2")
         
         # Set different statuses
         self.bulk_manager.jobs[job1_id].status = BulkStatus.PROCESSING
@@ -451,11 +462,12 @@ class TestBulkDownloadManager:
         assert stats['active_jobs'] == 1
         assert stats['queued_jobs'] == 0
     
-    def test_export_job_report(self):
+    @pytest.mark.asyncio
+    async def test_export_job_report(self):
         """Test exporting job report."""
         # Create job with some progress
         mock_results = self._create_mock_search_results(1, 2)
-        job_id = self.bulk_manager.create_bulk_job(mock_results, "Test Job")
+        job_id = await self.bulk_manager.create_bulk_job(mock_results, "Test Job")
         
         job = self.bulk_manager.jobs[job_id]
         job.status = BulkStatus.COMPLETED

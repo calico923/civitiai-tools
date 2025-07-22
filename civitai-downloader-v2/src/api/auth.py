@@ -62,7 +62,7 @@ class AuthManager:
         Returns:
             True if API key is valid, False otherwise
         """
-        if not self.api_key:
+        if not self.api_key or (isinstance(self.api_key, str) and self.api_key.strip() == ""):
             return False
         
         if isinstance(self.api_key, str):

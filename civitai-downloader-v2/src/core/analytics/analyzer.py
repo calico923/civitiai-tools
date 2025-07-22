@@ -39,10 +39,10 @@ class AnalyticsAnalyzer:
         """Initialize analytics analyzer."""
         self.collector = collector
     
-    def generate_report(self, start_time: float, end_time: float) -> AnalysisReport:
+    async def generate_report(self, start_time: float, end_time: float) -> AnalysisReport:
         """Generate comprehensive analytics report."""
         # Get events for the time period
-        events = self.collector.get_events(
+        events = await self.collector.get_events(
             start_time=start_time,
             end_time=end_time
         )
