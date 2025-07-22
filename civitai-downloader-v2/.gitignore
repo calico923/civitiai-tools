@@ -1,6 +1,8 @@
 # Environment variables
 .env
 .env.local
+# Keep .env.example for template
+!.env.example
 
 # Python
 __pycache__/

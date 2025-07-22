@@ -1,0 +1,127 @@
+# CivitAI Downloader v2 - Configuration Template
+# コピーして使用: cp config/app_config.yml.example config/app_config.yml
+
+# API設定
+api:
+  # 必須: CivitAI APIキー（https://civitai.com/user/account から取得）
+  civitai_api_key: "YOUR_API_KEY_HERE"
+  base_url: "https://civitai.com/api/v1"
+  timeout: 30
+  max_retries: 3
+  rate_limit: 0.5  # 1秒あたりのリクエスト数
+
+# ダウンロード設定
+download:
+  base_directory: "./downloads"
+  concurrent_downloads: 3
+  chunk_size: 8192
+  verify_checksums: true
+  organize_by_type: true
+  resume_enabled: true
+  skip_existing: true
+
+# セキュリティ設定
+security:
+  enable_scanning: true
+  max_file_size: 10737418240  # 10GB
+  scan_timeout: 300
+  require_confirmation: true
+  allow_nsfw: false
+  allow_pickle: false  # Pickleファイルの許可（セキュリティリスクあり）
+  verify_checksums: true
+  hash_algorithms:
+    - SHA256
+    - BLAKE3
+
+# データベース設定
+database:
+  url: "sqlite:///data/civitai.db"
+  connection_pool_size: 5
+  enable_optimization: true
+
+# ロギング設定
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "logs/civitai-downloader.log"
+  max_size_mb: 100
+  backup_count: 5
+  format: "detailed"  # simple, detailed, structured
+
+# 分析設定
+analytics:
+  enable_collection: true
+  retention_days: 90
+  report_formats: ["html", "json", "csv"]
+
+# 検索設定
+search:
+  dual_strategy_enabled: true
+  deduplication: true
+  default_sort: "Highest Rated"
+  default_period: "AllTime"
+  default_types:
+    - "Checkpoint"
+    - "LORA"
+    - "LoCon"
+
+# パフォーマンス設定
+performance:
+  optimization_mode: "adaptive"  # manual, balanced, adaptive
+  cache_enabled: true
+  cache_ttl: 900  # 15分
+  max_concurrent_requests: 3
+
+# 監視設定
+monitoring:
+  enable_stats: true
+  report_interval: "daily"
+  alert_threshold:
+    error_rate: 0.1
+    response_time: 5000
+    failure_rate: 0.5
+
+# UI設定
+ui:
+  interactive_mode: true
+  progress_updates: true
+  color_output: true
+  default_export_format: "json"
+
+# エンタープライズ機能設定
+enterprise:
+  # セキュリティ
+  encryption:
+    enabled: false
+    level: "standard"  # basic, standard, high
+  
+  # 信頼性
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 5
+    timeout: 60
+  
+  # 監視
+  health_monitoring:
+    enabled: true
+    check_interval: 30
+  
+  # プラグイン
+  plugins:
+    enabled: true
+    directory: "./plugins"
+    auto_discovery: true
+
+# 機能フラグ
+features:
+  enable_unofficial: true
+  risk_tolerance: "medium"  # low, medium, high
+  fallback_enabled: true
+  categories_enabled: true
+  sortby_enabled: true
+
+# 開発・デバッグ設定
+development:
+  enabled: false
+  debug_mode: false
+  mock_api: false
+  profile_performance: false
