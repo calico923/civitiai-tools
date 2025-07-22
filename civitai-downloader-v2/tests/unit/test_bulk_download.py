@@ -122,8 +122,8 @@ class TestBulkDownloadManager:
         self.mock_download_manager.create_download_task = Mock(side_effect=lambda **kwargs: f"task-{uuid.uuid4()}")
         self.mock_download_manager.start_download = AsyncMock(return_value=True)
         self.mock_download_manager.get_task_status = Mock()
-        self.mock_download_manager.pause_download = Mock()
-        self.mock_download_manager.resume_download = Mock()
+        self.mock_download_manager.pause_download = AsyncMock(return_value=True)
+        self.mock_download_manager.resume_download = AsyncMock(return_value=True)
         self.mock_download_manager.cancel_download = Mock()
         
         # Mock security scanner
@@ -306,6 +306,7 @@ class TestBulkDownloadManager:
         assert "NetworkError" in error_messages or "Connection timeout" in error_messages
         assert "DiskFullError" in error_messages or "No space left" in error_messages
     
+    @pytest.mark.asyncio
     @pytest.mark.asyncio
     async def test_pause_and_resume_job(self):
         """Test pausing and resuming a job."""
@@ -530,7 +531,8 @@ class TestUtilityFunctions:
     """Test utility functions."""
     
     @patch('core.bulk.download_manager.BulkDownloadManager')
-    def test_create_bulk_download_from_search(self, MockBulkManager):
+    @pytest.mark.asyncio
+    async def test_create_bulk_download_from_search(self, MockBulkManager):
         """Test creating bulk download from search results."""
         # Mock bulk manager
         mock_instance = Mock()

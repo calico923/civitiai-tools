@@ -138,24 +138,30 @@ class CivitaiAPIClient:
             Pages of model data
         """
         current_params = params.copy()
-        page = 1
         
         while True:
-            current_params['page'] = page
-            
             try:
                 response = await self.get_models(current_params)
                 yield response
                 
-                # Check if more pages available
                 metadata = response.get('metadata', {})
-                current_page = metadata.get('currentPage', 1)
-                total_pages = metadata.get('totalPages', 1)
                 
-                if current_page >= total_pages:
-                    break
-                
-                page += 1
+                # Handle cursor-based pagination
+                if 'nextCursor' in metadata and metadata['nextCursor']:
+                    current_params['cursor'] = metadata['nextCursor']
+                    if 'page' in current_params:
+                        del current_params['page'] # Remove page if cursor is used
+                # Handle page-based pagination
+                elif 'currentPage' in metadata and 'totalPages' in metadata:
+                    current_page = metadata.get('currentPage', 1)
+                    total_pages = metadata.get('totalPages', 1)
+                    
+                    if current_page >= total_pages:
+                        break
+                    
+                    current_params['page'] = current_page + 1
+                else:
+                    break # No more pages
                 
             except Exception:
                 # Stop pagination on error
@@ -193,29 +199,7 @@ class CivitaiAPIClient:
             Search results from API
         """
         # Convert SearchParams to dict for API call
-        params_dict = {
-            'query': search_params.query,
-            'limit': search_params.limit,
-            'page': search_params.page,
-            'sort': search_params.sort.value if search_params.sort else 'Newest',
-            'period': search_params.period.value if search_params.period else 'AllTime'
-        }
-        
-        # Add optional parameters
-        if search_params.types:
-            params_dict['types'] = [t.value for t in search_params.types]
-        if search_params.base_models:
-            params_dict['baseModels'] = search_params.base_models
-        if search_params.tag:
-            params_dict['tag'] = search_params.tag
-        if search_params.username:
-            params_dict['username'] = search_params.username
-        if search_params.favorites:
-            params_dict['favorites'] = search_params.favorites
-        if search_params.hidden:
-            params_dict['hidden'] = search_params.hidden
-        if search_params.nsfw is not None:
-            params_dict['nsfw'] = search_params.nsfw
+        params_dict = search_params.to_api_params()
         
         return await self.get_models(params_dict)
     

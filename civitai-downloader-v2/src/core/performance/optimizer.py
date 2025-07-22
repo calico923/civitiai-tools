@@ -14,6 +14,8 @@ import psutil
 import threading
 from collections import deque
 import statistics
+import json
+import logging
 
 try:
     from ...core.config.system_config import SystemConfig
@@ -439,6 +441,70 @@ class PerformanceOptimizer:
         # Performance recommendations
         if self.metrics.avg_download_speed < 1024 * 1024:  # <1 MB/s
             recommendations.append("Average download speed is low. Check network connection and server location.")
+        
+        return recommendations
+    
+    def get_current_metrics(self) -> Dict[str, float]:
+        """
+        Get current system metrics for performance monitoring.
+        
+        Returns:
+            Dictionary containing current CPU and memory usage percentages
+        """
+        # Update current system metrics
+        try:
+            cpu_percent = psutil.cpu_percent(interval=0.1)
+            memory_info = psutil.virtual_memory()
+            memory_percent = memory_info.percent
+        except Exception:
+            # Fallback to stored metrics if psutil fails
+            cpu_percent = self.metrics.cpu_usage
+            memory_percent = self.metrics.memory_usage
+        
+        return {
+            'cpu_percent': cpu_percent,
+            'memory_percent': memory_percent,
+            'download_speed': self.metrics.download_speed,
+            'active_connections': self.metrics.active_connections
+        }
+    
+    def get_optimization_recommendations(self) -> Dict[str, Any]:
+        """
+        Get optimization recommendations based on current performance metrics.
+        
+        Returns:
+            Dictionary containing optimization recommendations
+        """
+        recommendations = {}
+        
+        # Base concurrent downloads recommendation
+        base_concurrent = self.get_optimal_connections()
+        
+        # Adjust based on failure rate and network condition
+        failure_rate = self.metrics.failed_connections / max(self.metrics.active_connections, 1)
+        
+        if failure_rate > 0.2:  # High failure rate
+            # Reduce concurrent downloads for stability
+            recommended_concurrent = max(1, base_concurrent // 2)
+        elif self.metrics.network_condition == NetworkCondition.UNSTABLE:
+            # Conservative settings for unstable network
+            recommended_concurrent = max(1, min(base_concurrent, 3))
+        elif self.metrics.network_condition == NetworkCondition.POOR:
+            # Minimal concurrent downloads for poor network
+            recommended_concurrent = 1
+        else:
+            # Use optimal settings for good conditions
+            recommended_concurrent = base_concurrent
+        
+        recommendations['max_concurrent_downloads'] = recommended_concurrent
+        recommendations['chunk_size'] = self.get_optimal_chunk_size()
+        recommendations['retry_delay'] = self.get_retry_delay(1)
+        
+        # Add context for decision making
+        recommendations['network_condition'] = self.metrics.network_condition.value
+        recommendations['failure_rate'] = failure_rate
+        recommendations['cpu_usage'] = self.metrics.cpu_usage
+        recommendations['memory_usage'] = self.metrics.memory_usage
         
         return recommendations
 

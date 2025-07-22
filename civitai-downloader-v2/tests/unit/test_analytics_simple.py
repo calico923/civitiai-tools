@@ -25,88 +25,118 @@ except ImportError:
     ANALYZER_AVAILABLE = False
 
 
-class TestAnalyticsBasic(unittest.TestCase):
-    """Test basic analytics functionality."""
-    
-    def setUp(self):
-        """Set up test environment."""
-        self.temp_dir = tempfile.mkdtemp()
-        self.db_path = Path(self.temp_dir) / "test_analytics.db"
-        self.collector = AnalyticsCollector(db_path=str(self.db_path))
-    
-    def tearDown(self):
-        """Clean up test environment."""
-        self.collector.stop()
-        if self.db_path.exists():
-            self.db_path.unlink()
-        os.rmdir(self.temp_dir)
-    
-    def test_collector_initialization(self):
-        """Test basic collector initialization."""
-        self.assertTrue(self.db_path.exists())
-        self.assertIsInstance(self.collector, AnalyticsCollector)
-    
-    def test_database_creation(self):
-        """Test database and table creation."""
-        with sqlite3.connect(self.db_path) as conn:
-            tables = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
-            table_names = [table[0] for table in tables]
-            self.assertIn('events', table_names)
-    
-    def test_basic_event_recording(self):
-        """Test basic event recording."""
-        # Record an event directly using the lower-level method
-        self.collector.record_event(
-            EventType.DOWNLOAD_STARTED,
-            {'file_id': 'test123', 'size': 1024}
-        )
-        
-        # Force flush
-        self.collector._flush_events()
-        
-        # Verify event was recorded
-        with sqlite3.connect(self.db_path) as conn:
-            events = conn.execute("SELECT * FROM events").fetchall()
-            print(f"Events found: {len(events)}")
-            for event in events:
-                print(f"Event: {event}")
-            self.assertGreaterEqual(len(events), 1)  # Allow for multiple events
-    
-    def test_global_collector(self):
-        """Test global collector functionality."""
-        collector1 = get_analytics_collector()
-        collector2 = get_analytics_collector()
-        self.assertIs(collector1, collector2)
-    
-    @unittest.skipIf(not ANALYZER_AVAILABLE, "Analyzer not available")
-    def test_analyzer_basic(self):
-        """Test basic analyzer functionality."""
-        # Add some data
-        self.collector.record_event(
-            EventType.DOWNLOAD_STARTED,
-            {'file_id': 'test123', 'size': 1024}
-        )
-        self.collector.record_event(
-            EventType.DOWNLOAD_COMPLETED,
-            {'file_id': 'test123', 'duration': 2.5}
-        )
-        self.collector._flush_events()
-        
-        # Create analyzer
-        analyzer = AnalyticsAnalyzer(self.collector)
-        
-        # Generate report
-        end_time = time.time()
-        start_time = end_time - 3600  # 1 hour ago
-        
-        report = analyzer.generate_report(start_time, end_time)
-        
-        # Basic assertions
-        self.assertIsNotNone(report)
-        self.assertIsInstance(report.summary, dict)
+import pytest
+from core.analytics.collector import (
+    AnalyticsCollector, EventType, get_analytics_collector
+)
+
+try:
+    from core.analytics.analyzer import AnalyticsAnalyzer
+    ANALYZER_AVAILABLE = True
+except ImportError:
+    ANALYZER_AVAILABLE = False
+
+
+@pytest.fixture(autouse=True)
+def reset_global_collector(monkeypatch):
+    """Fixture to reset the global collector instance before each test."""
+    # Temporarily set the instance to None
+    monkeypatch.setattr("core.analytics.collector._global_collector", None)
+    yield
+    # After the test, ensure it's cleaned up again
+    monkeypatch.setattr("core.analytics.collector._global_collector", None)
+
+
+@pytest.fixture
+def collector(tmp_path):
+    """Fixture to create a new AnalyticsCollector for each test."""
+    db_path = tmp_path / "test_analytics.db"
+    collector = AnalyticsCollector(db_path=str(db_path))
+    yield collector
+    collector.stop()
+
+
+def test_collector_initialization(collector, tmp_path):
+    """Test basic collector initialization."""
+    db_path = tmp_path / "test_analytics.db"
+    assert db_path.exists()
+    assert isinstance(collector, AnalyticsCollector)
+
+
+def test_database_creation(collector, tmp_path):
+    """Test database and table creation."""
+    db_path = tmp_path / "test_analytics.db"
+    with sqlite3.connect(db_path) as conn:
+        tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+        table_names = [table[0] for table in tables]
+        assert 'analytics_events' in table_names
+
+
+@pytest.mark.asyncio
+async def test_basic_event_recording(collector, tmp_path):
+    """Test basic event recording."""
+    db_path = tmp_path / "test_analytics.db"
+    # Record an event directly using the lower-level method
+    await collector.record_event(
+        EventType.DOWNLOAD_STARTED,
+        {'file_id': 'test123', 'size': 1024}
+    )
+
+    # Force flush
+    collector._flush_events()
+
+    # Verify event was recorded
+    with sqlite3.connect(db_path) as conn:
+        # Use the correct table name 'analytics_events'
+        events = conn.execute("SELECT * FROM analytics_events").fetchall()
+        print(f"Events found: {len(events)}")
+        for event in events:
+            print(f"Event: {event}")
+        assert len(events) >= 1
+
+
+def test_global_collector(reset_global_collector):
+    """Test global collector functionality."""
+    # The fixture already resets the instance
+    collector1 = get_analytics_collector()
+    collector2 = get_analytics_collector()
+    assert collector1 is collector2
+    # Clean up the global instance's resources if it was created
+    if collector1:
+        collector1.stop()
+
+
+@pytest.mark.skipif(not ANALYZER_AVAILABLE, reason="Analyzer not available")
+@pytest.mark.asyncio
+async def test_analyzer_basic(collector):
+    """Test basic analyzer functionality."""
+    # Add some data
+    await collector.record_event(
+        EventType.DOWNLOAD_STARTED,
+        {'file_id': 'test123', 'size': 1024}
+    )
+    await collector.record_event(
+        EventType.DOWNLOAD_COMPLETED,
+        {'file_id': 'test123', 'duration': 2.5}
+    )
+    collector._flush_events()
+
+    # Create analyzer
+    analyzer = AnalyticsAnalyzer(collector)
+
+    # Generate report
+    end_time = time.time()
+    start_time = end_time - 3600  # 1 hour ago
+
+    report = await analyzer.generate_report(start_time, end_time)
+
+    # Basic assertions
+    assert report is not None
+    assert isinstance(report.summary, dict)
 
 
 if __name__ == '__main__':
-    unittest.main(verbosity=2)
+    # This part is for standalone execution, not used by pytest
+    pytest.main([__file__])

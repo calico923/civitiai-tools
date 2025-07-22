@@ -27,14 +27,20 @@ class DatabaseManager:
         Args:
             db_path: Path to SQLite database file
         """
-        self.db_path = db_path or Path("./data/civitai_downloader.db")
+        self.db_path = Path(db_path) if db_path else Path("./data/civitai_downloader.db")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Thread safety
         self._lock = threading.Lock()
         
-        # Initialize database schema
-        self._init_database()
+        # Note: Database schema will be initialized in initialize() method
+        self._initialized = False
+    
+    async def initialize(self) -> None:
+        """Initialize database - async version for CLI compatibility."""
+        if not self._initialized:
+            self._init_database()
+            self._initialized = True
     
     def _init_database(self) -> None:
         """Initialize database schema if not exists."""

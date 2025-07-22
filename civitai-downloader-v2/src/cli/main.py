@@ -13,12 +13,12 @@ from typing import List, Optional
 import logging
 
 # Import core components
-from ..core.search.advanced_search import AdvancedSearchEngine
+from ..core.search.advanced_search import AdvancedSearchParams, SortOption, NSFWFilter
 from ..core.download.manager import DownloadManager
 from ..core.config.manager import ConfigManager
 from ..core.security.scanner import SecurityScanner
 from ..data.database import DatabaseManager
-from ..api.client import CivitAIClient
+from ..api.client import CivitaiAPIClient
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -32,7 +32,6 @@ class CLIContext:
         self.config_manager = None
         self.db_manager = None
         self.client = None
-        self.search_engine = None
         self.download_manager = None
         self.security_scanner = None
     
@@ -50,22 +49,21 @@ class CLIContext:
             
             # Initialize API client
             api_config = self.config_manager.get_section('api')
-            self.client = CivitAIClient(
+            self.client = CivitaiAPIClient(
                 base_url=api_config.get('base_url', 'https://civitai.com/api'),
                 api_key=api_config.get('api_key')
             )
             
             # Initialize components
-            self.search_engine = AdvancedSearchEngine(
-                client=self.client,
-                db_manager=self.db_manager
-            )
+            # DownloadManager uses auth_manager and config instead of client
+            from ..api.auth import AuthManager
+            from ..core.config.system_config import SystemConfig
             
-            download_dir = self.config_manager.get('download.base_directory', 'downloads')
+            auth_manager = AuthManager(api_key=self.config_manager.get('api.api_key'))
+            system_config = SystemConfig()
             self.download_manager = DownloadManager(
-                client=self.client,
-                download_dir=Path(download_dir),
-                db_manager=self.db_manager
+                auth_manager=auth_manager,
+                config=system_config
             )
             
             self.security_scanner = SecurityScanner()
@@ -83,10 +81,10 @@ def run_async(coro):
     """Helper to run async functions in CLI."""
     try:
         return asyncio.run(coro)
-    except KeyboardInterrupt:
-        click.echo("\nOperation cancelled by user.", err=True)
-        sys.exit(1)
     except Exception as e:
+        # Re-raise exceptions during testing to get proper tracebacks
+        if "pytest" in sys.modules:
+            raise
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -121,56 +119,53 @@ def search_command(query, nsfw, types, sort, limit, output, output_format):
     """Search for models on CivitAI."""
     
     async def run_search():
-        try:
-            # Build filters
-            filters = {
-                'nsfw': nsfw,
-                'sort': sort,
-                'limit': limit
-            }
-            
-            if types:
-                filters['types'] = list(types)
-            
-            # Perform search
-            click.echo(f"Searching for: {query}")
-            if types:
-                click.echo(f"Types: {', '.join(types)}")
-            if nsfw:
-                click.echo("Including NSFW content")
-            
-            results = await cli_context.search_engine.search(query, filters)
-            
-            if not results:
-                click.echo("No results found.")
-                return
-            
-            # Format output
-            if output_format == 'json':
-                output_data = json.dumps(results, indent=2)
-                click.echo(output_data)
-            elif output_format == 'simple':
-                for result in results:
-                    click.echo(f"{result['id']}: {result['name']}")
-            else:  # table format
-                click.echo(f"\nFound {len(results)} results:\n")
-                click.echo(f"{'ID':<8} {'Name':<40} {'Type':<15} {'Downloads':<10}")
-                click.echo("-" * 80)
-                
-                for result in results:
-                    name = result['name'][:37] + "..." if len(result['name']) > 40 else result['name']
-                    downloads = result.get('stats', {}).get('downloadCount', 0)
-                    click.echo(f"{result['id']:<8} {name:<40} {result['type']:<15} {downloads:<10}")
-            
-            # Save to file if requested
-            if output:
-                with open(output, 'w') as f:
-                    json.dump(results, f, indent=2)
-                click.echo(f"\nResults saved to: {output}")
+        # Build search parameters
+        params = AdvancedSearchParams(
+            query=query,
+            nsfw_filter=NSFWFilter.SFW_ONLY if not nsfw else NSFWFilter.INCLUDE_ALL,
+            sort_option=SortOption(sort) if sort in [e.value for e in SortOption] else SortOption.MOST_DOWNLOADED,
+            limit=limit,
+            model_types=list(types) if types else None
+        )
         
-        except Exception as e:
-            click.echo(f"Search failed: {e}", err=True)
-            raise
+        # Perform search
+        click.echo(f"Searching for: {query}")
+        if types:
+            click.echo(f"Types: {', '.join(types)}")
+        if nsfw:
+            click.echo("Including NSFW content")
+        
+        results = await cli_context.client.search_models(params)
+        
+        if not results:
+            click.echo("No results found.")
+            return
+        
+        # Format output
+        if output_format == 'json':
+            # Convert results to dicts if they are objects
+            results_dict = [res.dict() if hasattr(res, 'dict') else res for res in results]
+            output_data = json.dumps(results_dict, indent=2)
+            click.echo(output_data)
+        elif output_format == 'simple':
+            for result in results:
+                click.echo(f"{result.id}: {result.name}")
+        else:  # table format
+            click.echo(f"\nFound {len(results)} results:\n")
+            click.echo(f"{'ID':<8} {'Name':<40} {'Type':<15} {'Downloads':<10}")
+            click.echo("-" * 80)
+            
+            for result in results:
+                name = result.name[:37] + "..." if len(result.name) > 40 else result.name
+                downloads = result.stats.download_count if result.stats else 0
+                click.echo(f"{result.id:<8} {name:<40} {result.type:<15} {downloads:<10}")
+        
+        # Save to file if requested
+        if output:
+            with open(output, 'w') as f:
+                results_dict = [res.dict() if hasattr(res, 'dict') else res for res in results]
+                json.dump(results_dict, f, indent=2)
+            click.echo(f"\nResults saved to: {output}")
     
     run_async(run_search())
 
@@ -271,8 +266,7 @@ def config_command(set_option, get_option, list_all, edit):
     try:
         if set_option:
             if '=' not in set_option:
-                click.echo("Error: Set option must be in format key=value", err=True)
-                return
+                raise click.BadParameter("Set option must be in format key=value")
             
             key, value = set_option.split('=', 1)
             cli_context.config_manager.set(key, value)
@@ -312,6 +306,7 @@ def config_command(set_option, get_option, list_all, edit):
     
     except Exception as e:
         click.echo(f"Configuration error: {e}", err=True)
+        sys.exit(1)
 
 
 @cli.command('info')

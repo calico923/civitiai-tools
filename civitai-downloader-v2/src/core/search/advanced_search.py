@@ -191,6 +191,7 @@ class AdvancedSearchParams:
     # Search parameters
     limit: int = 100
     page: int = 1
+    cursor: Optional[str] = None
     
     def __post_init__(self):
         """Validate parameters after initialization."""
@@ -237,7 +238,10 @@ class AdvancedSearchParams:
         
         # Pagination
         params['limit'] = min(self.limit, 200)  # Enforce API limit
-        params['page'] = self.page
+        if self.query and self.cursor:
+            params['cursor'] = self.cursor
+        elif not self.query:
+            params['page'] = self.page
         
         # Date range
         if self.date_range:

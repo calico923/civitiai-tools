@@ -525,10 +525,12 @@ class BulkDownloadManager:
             job = self.jobs.get(job_id)
             if job and job.status == BulkStatus.PROCESSING:
                 job.status = BulkStatus.PAUSED
-                # Pause all associated download tasks
-                for task_id in job.download_tasks.values():
-                    self.download_manager.pause_download(task_id)
-                return True
+        
+        # Pause all associated download tasks outside of lock to avoid blocking
+        if job:
+            for task_id in job.download_tasks.values():
+                await self.download_manager.pause_download(task_id)
+            return True
         return False
     
     async def resume_job(self, job_id: str) -> bool:
@@ -537,10 +539,12 @@ class BulkDownloadManager:
             job = self.jobs.get(job_id)
             if job and job.status == BulkStatus.PAUSED:
                 job.status = BulkStatus.PROCESSING
-                # Resume all associated download tasks
-                for task_id in job.download_tasks.values():
-                    self.download_manager.resume_download(task_id)
-                return True
+        
+        # Resume all associated download tasks outside of lock to avoid blocking
+        if job:
+            for task_id in job.download_tasks.values():
+                await self.download_manager.resume_download(task_id)
+            return True
         return False
     
     def cancel_job(self, job_id: str) -> bool:

@@ -42,12 +42,7 @@ class AnalyticsAnalyzer:
     async def generate_report(self, start_time: float, end_time: float) -> AnalysisReport:
         """Generate comprehensive analytics report."""
         # Get events for the time period
-        events = await self.collector.get_events(
-            start_time=start_time,
-            end_time=end_time
-        )
-        
-        # Analyze different aspects
+        events = await self.collector.get_events(start_time=start_time, end_time=end_time)
         summary = self._analyze_summary(events, start_time, end_time)
         api_stats = self._analyze_api_statistics(events)
         download_stats = self._analyze_download_statistics(events)
