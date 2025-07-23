@@ -10,12 +10,9 @@
 # ============================================================================
 api:
   # 【必須】CivitAI APIキー
-  # 設定方法（優先順位順）:
-  # 1. 環境変数: export CIVITAI_API_KEY="your_key" (推奨・最優先)
-  # 2. このファイル: civitai_api_key: "your_key" (バックアップ用)
   # 取得方法: https://civitai.com/user/account でAPIキーを生成
   # 注意: このキーは秘密情報です。共有しないでください
-  civitai_api_key: "${CIVITAI_API_KEY}"  # 環境変数から読み込み
+  civitai_api_key: "YOUR_API_KEY_HERE"
   
   # APIベースURL（通常は変更不要）
   base_url: "https://civitai.com/api/v1"

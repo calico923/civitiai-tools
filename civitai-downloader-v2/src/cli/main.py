@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 import logging
+from datetime import datetime
 
 # Import core components
 from ..core.search.advanced_search import AdvancedSearchParams, SortOption, NSFWFilter
@@ -108,34 +109,89 @@ def cli(ctx, config, verbose):
 @cli.command('search')
 @click.argument('query')
 @click.option('--nsfw', is_flag=True, help='Include NSFW content')
-@click.option('--types', multiple=True, help='Model types (Checkpoint, LoRA, etc.)')
-@click.option('--sort', default='Most Downloaded', help='Sort order')
+@click.option('--types', help='Model types (Checkpoint, LoRA, etc.) - comma-separated or space-separated')
+@click.option('--base-model', help='Base model filter (e.g., "Pony Diffusion XL", "SDXL 1.0", "Flux.1 D")')
+@click.option('--sort', 
+              type=click.Choice([
+                  'Highest Rated', 'Most Downloaded', 'Newest', 'Oldest', 
+                  'Most Liked', 'Most Discussed', 'Most Collected', 'Most Images'
+              ]), 
+              default='Most Downloaded', help='Sort order')
 @click.option('--limit', default=20, help='Number of results to show')
 @click.option('--output', '-o', help='Save results to JSON file')
 @click.option('--format', 'output_format', 
               type=click.Choice(['table', 'json', 'simple']), 
               default='table', help='Output format')
-def search_command(query, nsfw, types, sort, limit, output, output_format):
+def search_command(query, nsfw, types, base_model, sort, limit, output, output_format):
     """Search for models on CivitAI."""
     
     async def run_search():
+        # Parse types - handle both comma-separated and space-separated
+        parsed_types = []
+        if types:
+            if ',' in types:
+                # Comma-separated: "Checkpoint,LORA"
+                parsed_types = [t.strip() for t in types.split(',')]
+            else:
+                # Single type or space would be handled as single string
+                parsed_types = [types.strip()]
+        
         # Build search parameters
         params = AdvancedSearchParams(
             query=query,
             nsfw_filter=NSFWFilter.SFW_ONLY if not nsfw else NSFWFilter.INCLUDE_ALL,
             sort_option=SortOption(sort) if sort in [e.value for e in SortOption] else SortOption.MOST_DOWNLOADED,
             limit=limit,
-            model_types=list(types) if types else None
+            model_types=parsed_types if parsed_types else None,
+            base_model=base_model
         )
         
         # Perform search
         click.echo(f"Searching for: {query}")
-        if types:
-            click.echo(f"Types: {', '.join(types)}")
+        if parsed_types:
+            click.echo(f"Types: {', '.join(parsed_types)}")
+        if base_model:
+            click.echo(f"Base model: {base_model}")
         if nsfw:
             click.echo("Including NSFW content")
         
-        results = await cli_context.client.search_models(params)
+        # Use pagination to get the requested number of results
+        results = []
+        collected = 0
+        
+        # Convert limit to per-page limit (max 100 per CivitAI API for reliability)
+        per_page = min(100, limit)
+        
+        # Update params for pagination
+        params.limit = per_page
+        
+        try:
+            async for page_data in cli_context.client.get_models_paginated(params.to_api_params()):
+                page_items = page_data.get("items", [])
+                
+                # Stop if no items in this page (end of results)
+                if not page_items:
+                    break
+                
+                remaining = limit - collected
+                
+                # Take only what we need
+                items_to_take = min(len(page_items), remaining)
+                results.extend(page_items[:items_to_take])
+                collected += items_to_take
+                
+                # Stop if we have enough results
+                if collected >= limit:
+                    break
+                    
+                # Stop if no more pages available
+                metadata = page_data.get('metadata', {})
+                if not metadata.get('nextCursor') and not metadata.get('nextPage'):
+                    break
+                    
+        except Exception as e:
+            click.echo(f"Error during search: {e}", err=True)
+            return
         
         if not results:
             click.echo("No results found.")
@@ -170,10 +226,37 @@ def search_command(query, nsfw, types, sort, limit, output, output_format):
         
         # Save to file if requested
         if output:
-            with open(output, 'w') as f:
-                results_dict = [res.dict() if hasattr(res, 'dict') else res for res in results]
-                json.dump(results_dict, f, indent=2)
-            click.echo(f"\nResults saved to: {output}")
+            # Determine output path - if no directory specified, use downloads/
+            output_path = Path(output)
+            # If path doesn't contain directory separator, put in downloads/
+            if '/' not in str(output) and '\\' not in str(output):
+                output_path = Path('downloads') / output_path
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(output_path, 'w', encoding='utf-8') as f:
+                if output_format == 'simple':
+                    # Save in simple format (ID: Name)
+                    for result in results:
+                        result_id = result.get("id", "N/A")
+                        result_name = result.get("name", "Unknown")
+                        f.write(f"{result_id}: {result_name}\n")
+                elif output_format == 'table':
+                    # Save in table format
+                    f.write(f"{'ID':<8} {'Name':<40} {'Type':<15} {'Downloads':<10}\n")
+                    f.write("-" * 80 + "\n")
+                    for result in results:
+                        result_name = result.get("name", "Unknown")
+                        name = result_name[:37] + "..." if len(result_name) > 40 else result_name
+                        result_id = result.get("id", 0)
+                        result_type = result.get("type", "Unknown")
+                        stats = result.get("stats", {})
+                        downloads = stats.get("downloadCount", 0) if isinstance(stats, dict) else 0
+                        f.write(f"{result_id:<8} {name:<40} {result_type:<15} {downloads:<10}\n")
+                else:  # json format (default for file output)
+                    results_dict = [res.dict() if hasattr(res, 'dict') else res for res in results]
+                    json.dump(results_dict, f, indent=2, ensure_ascii=False)
+            
+            click.echo(f"\nResults saved to: {output_path} (format: {output_format})")
     
     run_async(run_search())
 
@@ -413,6 +496,171 @@ def scan_command(file_path, detailed):
             raise
     
     run_async(run_scan())
+
+
+@cli.command('bulk-download')
+@click.option('--input', 'input_file', required=True, help='Input file (JSON or text format with model IDs)')
+@click.option('--output-dir', '-d', help='Download directory (default: downloads/)')
+@click.option('--batch-size', default=5, help='Number of concurrent downloads')
+@click.option('--priority', type=click.Choice(['LOW', 'MEDIUM', 'HIGH']), default='MEDIUM', help='Download priority')
+@click.option('--verify-hashes', is_flag=True, help='Verify file checksums after download')
+@click.option('--scan-security', is_flag=True, help='Scan files for security threats')
+@click.option('--job-name', help='Name for this bulk download job')
+def bulk_download_command(input_file, output_dir, batch_size, priority, verify_hashes, scan_security, job_name):
+    """Bulk download models from a file containing model IDs or search results."""
+    
+    async def run_bulk_download():
+        try:
+            # Read input file
+            input_path = Path(input_file)
+            if not input_path.exists():
+                # Check in downloads/ if not found
+                if '/' not in str(input_file) and '\\' not in str(input_file):
+                    input_path = Path('downloads') / input_file
+                    if not input_path.exists():
+                        click.echo(f"Error: Input file not found: {input_file}", err=True)
+                        return
+            
+            # Parse input file
+            models_to_download = []
+            
+            with open(input_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                
+                # Try to parse as JSON first
+                try:
+                    data = json.loads(content)
+                    if isinstance(data, list):
+                        # Extract model IDs from JSON array
+                        for item in data:
+                            if isinstance(item, dict):
+                                model_id = item.get('id')
+                                model_name = item.get('name', f'Model {model_id}')
+                            else:
+                                model_id = item
+                                model_name = f'Model {model_id}'
+                            
+                            if model_id:
+                                models_to_download.append({
+                                    'id': model_id,
+                                    'name': model_name
+                                })
+                except json.JSONDecodeError:
+                    # Parse as simple text format (ID: Name or just IDs)
+                    for line in content.split('\n'):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        
+                        # Try to parse "ID: Name" format
+                        if ':' in line:
+                            parts = line.split(':', 1)
+                            try:
+                                model_id = int(parts[0].strip())
+                                model_name = parts[1].strip() if len(parts) > 1 else f'Model {model_id}'
+                                models_to_download.append({
+                                    'id': model_id,
+                                    'name': model_name
+                                })
+                            except ValueError:
+                                click.echo(f"Warning: Skipping invalid line: {line}", err=True)
+                        else:
+                            # Try as plain ID
+                            try:
+                                model_id = int(line)
+                                models_to_download.append({
+                                    'id': model_id,
+                                    'name': f'Model {model_id}'
+                                })
+                            except ValueError:
+                                click.echo(f"Warning: Skipping invalid ID: {line}", err=True)
+            
+            if not models_to_download:
+                click.echo("Error: No valid model IDs found in input file", err=True)
+                return
+            
+            click.echo(f"Found {len(models_to_download)} models to download")
+            
+            # Initialize bulk download manager
+            from ..core.bulk.download_manager import BulkDownloadManager, BulkPriority
+            from ..core.performance.optimizer import PerformanceOptimizer
+            
+            optimizer = PerformanceOptimizer()
+            bulk_manager = BulkDownloadManager(
+                download_manager=cli_context.download_manager,
+                security_scanner=cli_context.security_scanner if scan_security else None,
+                optimizer=optimizer,
+                db_manager=cli_context.db_manager
+            )
+            
+            # Create bulk job
+            job_options = {
+                'batch_size': batch_size,
+                'priority': BulkPriority[priority],
+                'verify_hashes': verify_hashes,
+                'output_dir': output_dir or 'downloads/'
+            }
+            
+            job_id = await bulk_manager.create_bulk_job(
+                name=job_name or f"Bulk Download {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                items=models_to_download,
+                options=job_options
+            )
+            
+            click.echo(f"Created bulk download job: {job_id}")
+            
+            # Start the job
+            await bulk_manager.start()
+            
+            # Monitor progress
+            with click.progressbar(length=len(models_to_download), 
+                                 label='Downloading models') as bar:
+                last_completed = 0
+                
+                while True:
+                    job_info = bulk_manager.get_job_info(job_id)
+                    if not job_info:
+                        break
+                    
+                    completed = job_info['downloads']['completed']
+                    if completed > last_completed:
+                        bar.update(completed - last_completed)
+                        last_completed = completed
+                    
+                    if job_info['status'] in ['completed', 'failed', 'cancelled']:
+                        break
+                    
+                    await asyncio.sleep(1)
+            
+            # Show final results
+            job_info = bulk_manager.get_job_info(job_id)
+            if job_info:
+                click.echo(f"\nBulk download completed:")
+                click.echo(f"  Total: {job_info['downloads']['total']}")
+                click.echo(f"  Completed: {job_info['downloads']['completed']}")
+                click.echo(f"  Failed: {job_info['downloads']['failed']}")
+                click.echo(f"  Skipped: {job_info['downloads']['skipped']}")
+                
+                if job_info['downloads']['failed'] > 0:
+                    click.echo("\nFailed downloads:")
+                    # In real implementation, would show failed model details
+            
+            # Stop the bulk manager
+            await bulk_manager.stop()
+            
+        except Exception as e:
+            click.echo(f"Bulk download failed: {e}", err=True)
+            raise
+    
+    run_async(run_bulk_download())
+
+
+@cli.command('bulk-status')
+@click.option('--job-id', help='Specific job ID to check')
+def bulk_status_command(job_id):
+    """Check status of bulk download jobs."""
+    click.echo("Bulk status checking not yet fully implemented")
+    # This would show status of running/completed bulk jobs
 
 
 @cli.command('version')

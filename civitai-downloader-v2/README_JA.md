@@ -56,30 +56,26 @@ cp config/app_config.yml.example config/app_config.yml
 
 ### 2. 設定
 
-設定ファイルを作成します：
+### 🔑 APIキーの設定
 
+**推奨方法（環境変数）**：
 ```bash
-# 設定を編集
+# 環境変数でAPIキーを設定（最もセキュア）
+export CIVITAI_API_KEY="your_actual_api_key_here"
+```
+
+**代替方法（設定ファイル）**：
+```bash
+# 設定ファイルを編集
 nano config/app_config.yml
 ```
 
-**必須設定:**
-```yaml
-api:
-  civitai_api_key: "YOUR_API_KEY_HERE"
-  base_url: "https://civitai.com/api/v1"
-  rate_limit: 0.5  # 1秒あたりのリクエスト数
+**設定の優先順位**：
+1. **環境変数** `CIVITAI_API_KEY` （推奨・最優先）
+2. **設定ファイル** `config/app_config.yml` の `civitai_api_key`
+3. **.env ファイル** `.env` の `CIVITAI_API_KEY`
 
-download:
-  base_directory: "./downloads"
-  concurrent_downloads: 3
-  verify_checksums: true
-  
-security:
-  enable_scanning: true
-  require_confirmation: true
-  allow_nsfw: false
-```
+**セキュリティ上の理由から環境変数での設定を強く推奨します**
 
 ### 3. 基本的な使用方法
 
@@ -102,53 +98,192 @@ python -m src.cli.main config --list
 
 ## 📖 完全使用ガイド
 
-> **📝 注意**: 検索キーワードは英語で入力してください。CivitAI APIは英語での検索に最適化されています。
+> **📝 重要な注意事項**:
+> - **検索キーワード**: 英語で入力してください（CivitAI APIは英語検索に最適化）
+> - **ページネーション対応**: `--limit`で指定した件数まで複数ページから自動取得します（例：250件指定で4回のAPIリクエスト）
+> - **API制限**: 1ページあたり最大100件、レート制限に自動適応します
 
 ### 🔍 検索操作
+
+#### 出力フォーマット説明
+
+| フォーマット | 説明 | 用途 | 出力例 |
+|-------------|------|------|--------|
+| **table** | テーブル形式（デフォルト） | 人間が読みやすい形式 | `12345    Model Name                 LoRA      1234` |
+| **simple** | ID:名前の最小形式 | スクリプト処理や簡単な一覧 | `12345: Model Name` |
+| **json** | 完全なJSONデータ | プログラム処理や詳細分析 | `{"id": 12345, "name": "...", ...}` |
+
+#### 利用可能なモデルタイプ (`--types`)
+
+| タイプ名 | 説明 | 用途 | 例 |
+|---------|------|------|-----|
+| **Checkpoint** | 大容量ベースモデル | メイン生成モデル | Stable Diffusion基盤 |
+| **LORA** | 軽量追加学習モデル | スタイル・キャラ追加 | アニメスタイル、特定キャラ |
+| **LoCon** | LoRA系軽量モデル | スタイル調整 | 新しいLoRA形式 |
+| **TextualInversion** | Embeddingモデル | プロンプト拡張 | 顔・表情の微調整 |
+| **VAE** | 画像エンコーダー | 品質向上 | 色彩・詳細改善 |
+| **Upscaler** | 高解像度化 | 画像拡大 | 解像度向上ツール |
+| **Other** | その他モデル | 特殊用途 | カスタムツール |
+| **Workflows** | 作業手順 | 生成手順共有 | ComfyUIワークフロー |
+
+**注意**: 
+- モデルタイプ名は**大文字小文字を区別**します（`LORA` ○、`lora` ×）
+- 複数タイプは`"Checkpoint,LORA"`のようにカンマ区切りで指定可能
+
+#### 利用可能なソートオプション (`--sort`)
+
+| ソートオプション | 説明 | 用途 |
+|----------------|------|------|
+| **Most Downloaded** | ダウンロード数順（デフォルト） | 人気の高いモデルを探す |
+| **Highest Rated** | 評価の高い順 | 品質の高いモデルを探す |
+| **Newest** | 新着順 | 最新のモデルを探す |
+| **Oldest** | 古い順 | クラシックなモデルを探す |
+| **Most Liked** | いいね数順 | コミュニティに評価されたモデル |
+| **Most Discussed** | 議論数順 | 話題になっているモデル |
+| **Most Collected** | コレクション数順 | よく保存されているモデル |
+| **Most Images** | 画像数順 | サンプル画像が豊富なモデル |
 
 #### 基本検索
 ```bash
 # クエリで検索（検索語は英語）
-python -m src.cli.main search "cyberpunk style" --limit 10
+python -m src.cli.main search "cyberpunk style" --limit 20
 
-# モデルタイプでフィルタ  
-python -m src.cli.main search "character" --types Checkpoint,LORA --limit 10
+# モデルタイプでフィルタ（カンマ区切りまたは複数回指定で複数指定可能）
+python -m src.cli.main search "character" --types "Checkpoint,LORA" --limit 20
+
+# 利用可能なモデルタイプ一覧（大文字小文字区別あり）
+python -m src.cli.main search "anime" --types LORA --limit 10              # LoRAモデルのみ
+python -m src.cli.main search "style" --types Checkpoint --limit 10         # Checkpointのみ  
+python -m src.cli.main search "face" --types TextualInversion --limit 5     # Embeddingのみ
+python -m src.cli.main search "character" --types "LORA,LoCon" --limit 15     # 複数タイプ指定
+python -m src.cli.main search "model" --types "Checkpoint,VAE,LORA" --limit 20  # 3つのタイプ
+
+# ベースモデルで絞り込み（Checkpoint向け）
+python -m src.cli.main search "anime" --types Checkpoint --base-model "Pony Diffusion XL" --limit 10
+python -m src.cli.main search "realistic" --types Checkpoint --base-model "SDXL 1.0" --limit 10
 
 # 複数キーワードで検索
-python -m src.cli.main search "anime portrait" --limit 5
+python -m src.cli.main search "anime portrait" --limit 15
 
-# 検索結果をテーブル形式で表示
-python -m src.cli.main search "landscape" --limit 5 --format table
+# 検索結果をテーブル形式で表示（デフォルト）
+python -m src.cli.main search "landscape" --limit 15 --format table
+
+# シンプル形式で表示（ID: 名前のみ）
+python -m src.cli.main search "portrait" --limit 5 --format simple
 
 # NSFW含む検索
-python -m src.cli.main search "style" --nsfw --limit 5
+python -m src.cli.main search "style" --nsfw --limit 20
+
+# 大量件数での検索（ページネーション対応）
+python -m src.cli.main search "anime" --limit 250 --format table
+
+# ソート順を指定して検索
+python -m src.cli.main search "anime" --sort "Highest Rated" --limit 20       # 評価の高い順
+python -m src.cli.main search "character" --sort "Newest" --limit 15          # 新着順
+python -m src.cli.main search "style" --sort "Most Liked" --limit 10          # いいね数順
+python -m src.cli.main search "portrait" --sort "Most Images" --limit 12      # 画像数順
 ```
 
 #### 検索結果のエクスポート
 ```bash
-# JSON形式で保存
-python -m src.cli.main search "mecha" --limit 20 --output mecha_models.json
+# ファイルに保存（--outputでフォーマット指定可能）
+python -m src.cli.main search "mecha" --limit 20 --output mecha_models.json          # JSON形式（デフォルト）
+python -m src.cli.main search "anime" --limit 50 --format simple --output anime_list.txt  # シンプル形式
+python -m src.cli.main search "style" --limit 30 --format table --output style_table.txt  # テーブル形式
 
-# 検索結果の詳細表示
-python -m src.cli.main search "fantasy" --limit 10 --format json
+# 自動的にdownloads/フォルダに保存される（ディレクトリ指定なしの場合）
+python -m src.cli.main search "" --types Checkpoint --base-model "Pony Diffusion XL" --limit 100 --format simple --output pony_checkpoints.txt
+# → downloads/pony_checkpoints.txt に保存
 
-# シンプル形式で表示  
-python -m src.cli.main search "landscape" --limit 5 --format simple
+# カスタムパスを指定
+python -m src.cli.main search "character" --limit 50 --format simple --output ./results/characters.txt
+
+# 出力形式の比較例（画面表示）
+python -m src.cli.main search "mecha" --limit 3 --format simple   # 12345: Mecha Robot LoRA
+python -m src.cli.main search "mecha" --limit 3 --format table    # テーブル形式（ID、名前、タイプ、DL数）
+python -m src.cli.main search "mecha" --limit 3 --format json     # 完全なJSON（全フィールド）
 ```
 
 ### 📥 ダウンロード操作
 
 #### 単体ダウンロード
 ```bash
-# モデルIDでダウンロード
+# モデルIDでダウンロード（デフォルト：./downloads）
 python -m src.cli.main download 123456
+
+# カスタムディレクトリにダウンロード
+python -m src.cli.main download 123456 --output-dir ./my_models
+
+# ファイル名も指定
+python -m src.cli.main download 123456 --output-dir ./checkpoints --filename "my_anime_model.safetensors"
+
+# セキュリティチェック付きでダウンロード
+python -m src.cli.main download 123456 --output-dir ./safe_models --verify --scan-security
 
 # モデル情報を詳しく表示
 python -m src.cli.main info 123456
 
 # モデル情報を詳細表示してからダウンロード
 python -m src.cli.main info 123456 --detailed
-python -m src.cli.main download 123456
+python -m src.cli.main download 123456 --output-dir ./downloads/anime
+```
+
+#### バルクダウンロード（大量モデル一括処理）
+
+```bash
+# 検索結果をJSONで保存してからバルクダウンロード
+python -m src.cli.main search "anime style" --limit 50 --output anime_models.json
+python -m src.cli.main bulk-download --input anime_models.json
+
+# シンプル形式（ID: Name）のテキストファイルからもダウンロード可能
+python -m src.cli.main search "" --types Checkpoint --base-model "Pony Diffusion XL" --limit 30 --format simple --output pony_list.txt
+python -m src.cli.main bulk-download --input pony_list.txt
+
+# カスタムディレクトリへバルクダウンロード
+python -m src.cli.main bulk-download --input anime_models.json --output-dir ./bulk_downloads/anime
+
+# バルクダウンロードの詳細オプション
+python -m src.cli.main bulk-download \
+  --input models.json \
+  --output-dir ./organized_downloads \
+  --batch-size 5 \
+  --priority HIGH \
+  --verify-hashes \
+  --scan-security \
+  --job-name "アニメモデル収集"
+
+# 対応する入力形式
+# 1. JSON形式（searchコマンドの出力）
+# 2. シンプル形式（ID: Name）
+# 3. IDのみのテキスト（1行1ID）
+
+# 失敗したダウンロードを再実行
+python -m src.cli.main bulk-retry --job-id bulk_001
+
+# バルクジョブ一覧表示
+python -m src.cli.main bulk-list
+
+# 特定ジョブの詳細情報
+python -m src.cli.main bulk-info --job-id bulk_001
+```
+
+#### フォルダ整理パターン例
+```bash
+# タイプ別フォルダ整理（--organize-by-type使用時）
+downloads/
+├── Checkpoint/        # Checkpointモデル
+├── LORA/             # LoRAファイル
+├── LoCon/            # LoConファイル
+├── Textual_Inversion/ # Embeddingファイル
+└── VAE/              # VAEファイル
+
+# 手動でのプロジェクト別整理例
+python -m src.cli.main bulk-download --input anime_chars.json --output-dir "./projects/anime_characters"
+python -m src.cli.main bulk-download --input landscapes.json --output-dir "./projects/landscapes"  
+python -m src.cli.main bulk-download --input portraits.json --output-dir "./projects/portraits"
+
+# 日付別整理
+python -m src.cli.main bulk-download --input daily_picks.json --output-dir "./downloads/$(date +%Y%m%d)"
 ```
 
 #### ファイル管理・セキュリティ
@@ -195,10 +330,10 @@ python -m src.cli.main --help
 #### 実用的な使用例
 ```bash
 # 人気のアニメスタイルモデルを検索
-python -m src.cli.main search "anime style" --limit 10 --format table
+python -m src.cli.main search "anime style" --sort "Most Downloaded" --limit 10 --format table
 
 # ポートレート用モデルを探す
-python -m src.cli.main search "portrait" --types LORA --limit 5
+python -m src.cli.main search "portrait" --types LORA --sort "Highest Rated" --limit 5
 
 # 特定モデルの詳細情報を取得
 python -m src.cli.main info 1800398
@@ -224,17 +359,20 @@ python -m src.cli.main download 1800398
 python -m src.cli.main scan downloads/model_name.safetensors
 ```
 
-#### 2. 特定スタイル用のLoRAを収集
+#### 2. 特定スタイル用のLoRAを収集（バルク処理）
 ```bash
 # 1. ポートレート用のLoRAを検索
-python -m src.cli.main search "portrait style" --types LORA --limit 15 --format table
+python -m src.cli.main search "portrait style" --types LORA --limit 30 --format table
 
 # 2. 結果をJSONで保存
 python -m src.cli.main search "portrait style" --types LORA --limit 30 --output portrait_loras.json
 
-# 3. 複数のモデル情報を確認
-python -m src.cli.main info 1796682
-python -m src.cli.main info 1796959
+# 3. バルクダウンロードで一括取得（JSON形式）
+python -m src.cli.main bulk-download --input portrait_loras.json --batch-size 5
+
+# または、シンプル形式で保存してから
+python -m src.cli.main search "portrait style" --types LORA --limit 30 --format simple --output portrait_simple.txt
+python -m src.cli.main bulk-download --input portrait_simple.txt
 ```
 
 #### 3. システムメンテナンス
@@ -253,6 +391,68 @@ done
 
 # 4. 設定の調整
 python -m src.cli.main config --set "download.max_concurrent=3"
+
+# 5. データベースのバックアップ
+cp -r data/ data_backup_$(date +%Y%m%d)/
+
+# 6. ログファイルのクリーンアップ（30日以上前のログを削除）
+find logs/ -name "*.log" -mtime +30 -delete
+```
+
+#### 4. 特定ベースモデルのCheckpoint検索
+
+**新機能**: `--base-model`オプションが追加されました！特定のベースモデルに基づくCheckpointを絞り込めます：
+
+```bash
+# ベースモデル指定での検索（--base-modelオプション使用）
+python -m src.cli.main search "" --types Checkpoint --base-model "Pony" --limit 20
+python -m src.cli.main search "" --types Checkpoint --base-model "SDXL 1.0" --limit 20
+python -m src.cli.main search "" --types Checkpoint --base-model "SD 1.5" --limit 20
+
+# 注意：ベースモデルフィルターは結果を大幅に制限します
+# まずbaseModelなしで検索し、興味のあるモデルのbaseModel値を確認することを推奨
+python -m src.cli.main search "" --types Checkpoint --limit 20  # すべてのCheckpoint
+python -m src.cli.main search "realistic" --types Checkpoint --limit 15  # realistic系Checkpoint
+
+# 主要なベースモデル名の例（APIから実際に確認されたもの）
+# - "Pony" (Pony Diffusion XL系)
+# - "SDXL 1.0" (SDXL系)
+# - "SD 1.5" (Stable Diffusion 1.5系)  
+# - "Illustrious" (IllustriousXL系)
+# - "Flux.1 D" / "Flux.1 S" (Flux系)
+
+# 実用例：まず一般検索でbaseModel値を確認
+python -m src.cli.main search "" --types Checkpoint --limit 5 --format table
+# 興味のあるモデルのbaseModel値を確認してから絞り込み検索
+```
+
+**注意**: 
+- `--base-model`フィルターは結果を大幅に制限するため、まず一般検索でbaseModel値を確認することを推奨
+- ベースモデル名はCivitAI APIの正確な名称と一致する必要があります（"Pony"、"SDXL 1.0"、"SD 1.5"など）
+- 検索クエリとベースモデルフィルターの組み合わせは結果がゼロになる場合があります
+
+#### 5. 大量モデル収集プロジェクト
+```bash
+# 1. テーマ別に大量検索（複数回実行）
+python -m src.cli.main search "anime character" --limit 100 --output anime_chars.json
+python -m src.cli.main search "fantasy style" --limit 100 --output fantasy_styles.json  
+python -m src.cli.main search "cyberpunk" --limit 100 --output cyberpunk.json
+
+# 2. 各テーマをバルクダウンロード
+python -m src.cli.main bulk-download --input anime_chars.json --priority HIGH --batch-size 10
+python -m src.cli.main bulk-download --input fantasy_styles.json --priority MEDIUM
+python -m src.cli.main bulk-download --input cyberpunk.json --priority LOW
+
+# 3. 全バルクジョブの状況確認
+python -m src.cli.main bulk-list
+
+# 4. 失敗したジョブがあれば再実行
+python -m src.cli.main bulk-retry --job-id bulk_002
+python -m src.cli.main bulk-retry --job-id bulk_003
+
+# 5. 完了したファイル一覧とセキュリティチェック
+find downloads/ -name "*.safetensors" | wc -l  # ダウンロード済みファイル数
+python -m src.cli.main bulk-info --job-id bulk_001  # 詳細レポート
 ```
 
 ## 🏗️ 高度な使用方法
@@ -360,11 +560,30 @@ civitai-downloader-v2/
 │       └── progress.py          # 進行状況表示
 ├── tests/                       # テストスイート（112テスト）
 ├── config/                      # 設定ファイル
-├── data/                        # データベースファイル
-├── docs/                        # ドキュメント
-├── downloads/                   # ダウンロードされたモデル
-└── logs/                        # ログファイル
+│   ├── app_config.yml           # メイン設定ファイル
+│   └── app_config.yml.example   # 設定ファイルテンプレート
+├── data/                        # データベースファイル（自動作成）
+│   ├── civitai.db              # メインデータベース（履歴・キャッシュ）
+│   ├── analytics.db            # 分析データ・統計情報
+│   └── civitai_downloader.db   # システム設定・状態管理
+├── downloads/                   # ダウンロードされたモデル（自動作成）
+│   ├── models/                  # モデルファイル保存先
+│   └── temp/                    # 一時ファイル
+├── logs/                        # ログファイル（自動作成）
+│   └── civitai-downloader.log  # アプリケーションログ
+└── docs/                        # ドキュメント
 ```
+
+### 📂 各ディレクトリの役割
+
+| ディレクトリ | 説明 | 自動作成 | 内容例 |
+|------------|------|----------|--------|
+| **config/** | 設定ファイル | ❌ | app_config.yml（手動作成必要） |
+| **data/** | データベース | ✅ | 検索履歴、ダウンロード記録、分析データ |
+| **downloads/** | モデル保存先 | ✅ | .safetensors、.ckpt等のモデルファイル |
+| **logs/** | ログファイル | ✅ | エラーログ、アクセスログ、デバッグ情報 |
+
+**注意**: `data/`、`downloads/`、`logs/`ディレクトリは初回実行時に自動作成されます。
 
 ## 🧪 テスト
 

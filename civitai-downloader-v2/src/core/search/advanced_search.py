@@ -73,7 +73,7 @@ class SortOption(Enum):
     MOST_LIKED = "Most Liked"
     MOST_DISCUSSED = "Most Discussed"
     MOST_COLLECTED = "Most Collected"
-    MOST_TIPPED = "Most Tipped"
+    MOST_IMAGES = "Most Images"
 
 
 class CustomSortMetric(Enum):
