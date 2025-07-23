@@ -14,7 +14,7 @@ import logging
 from datetime import datetime
 
 # Import core components
-from ..core.search.advanced_search import AdvancedSearchParams, SortOption, NSFWFilter, SortByField, SortDirection
+from ..core.search.advanced_search import AdvancedSearchParams, SortOption, NSFWFilter, SortByField, SortDirection, FlexibleDateRange, DateFilterType, RatingFilter
 from ..core.download.manager import DownloadManager
 from ..core.config.manager import ConfigManager
 from ..core.security.scanner import SecurityScanner
@@ -127,12 +127,27 @@ def cli(ctx, config, verbose):
               type=click.Choice(['desc', 'asc']), 
               default='desc', 
               help='Sort direction (for --sort-by option)')
+@click.option('--published-after', help='Models published after date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)')
+@click.option('--published-before', help='Models published before date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)')
+@click.option('--published-within', help='Models published within period (30days, 3months, 1year)')
+@click.option('--updated-after', help='Models updated after date (experimental - may not work)')
+@click.option('--updated-before', help='Models updated before date (experimental - may not work)')
+@click.option('--updated-within', help='Models updated within period (experimental - may not work)')
+@click.option('--min-likes', type=int, help='Minimum thumbs up count (likes)')
+@click.option('--max-likes', type=int, help='Maximum thumbs up count (likes)')
+@click.option('--min-like-ratio', type=float, help='Minimum like ratio (likes/(likes+dislikes), 0.0-1.0)')
+@click.option('--max-like-ratio', type=float, help='Maximum like ratio (likes/(likes+dislikes), 0.0-1.0)')
+@click.option('--min-interactions', type=int, help='Minimum total interactions (likes + dislikes)')
 @click.option('--limit', default=20, help='Number of results to show')
 @click.option('--output', '-o', help='Save results to JSON file')
 @click.option('--format', 'output_format', 
               type=click.Choice(['table', 'json', 'simple']), 
               default='table', help='Output format')
-def search_command(query, nsfw, types, base_model, sort, sort_by, sort_direction, limit, output, output_format):
+def search_command(query, nsfw, types, base_model, sort, sort_by, sort_direction, 
+                  published_after, published_before, published_within,
+                  updated_after, updated_before, updated_within,
+                  min_likes, max_likes, min_like_ratio, max_like_ratio, min_interactions,
+                  limit, output, output_format):
     """Search for models on CivitAI."""
     
     async def run_search():
@@ -166,6 +181,52 @@ def search_command(query, nsfw, types, base_model, sort, sort_by, sort_direction
             sort_by_field_obj = sort_by_mapping.get(sort_by)
             sort_by_direction_obj = SortDirection.ASC if sort_direction == 'asc' else SortDirection.DESC
         
+        # Handle date filtering parameters - Phase B-1
+        published_date_range_obj = None
+        updated_date_range_obj = None
+        
+        try:
+            if published_within:
+                # Relative period (e.g., "30days", "3months")
+                published_date_range_obj = FlexibleDateRange.from_relative_period(
+                    published_within, DateFilterType.PUBLISHED
+                )
+            elif published_after or published_before:
+                # Absolute date range
+                published_date_range_obj = FlexibleDateRange.from_string_dates(
+                    published_after, published_before, DateFilterType.PUBLISHED
+                )
+            
+            if updated_within:
+                # Relative period for updated dates
+                updated_date_range_obj = FlexibleDateRange.from_relative_period(
+                    updated_within, DateFilterType.UPDATED
+                )
+            elif updated_after or updated_before:
+                # Absolute date range for updated dates
+                updated_date_range_obj = FlexibleDateRange.from_string_dates(
+                    updated_after, updated_before, DateFilterType.UPDATED
+                )
+        except ValueError as e:
+            click.echo(f"Error parsing date: {e}", err=True)
+            return
+        
+        # Handle rating filtering parameters - Phase B-2
+        rating_filter_obj = None
+        
+        if any([min_likes, max_likes, min_like_ratio, max_like_ratio, min_interactions]):
+            try:
+                rating_filter_obj = RatingFilter(
+                    min_thumbs_up=min_likes,
+                    max_thumbs_up=max_likes,
+                    min_like_ratio=min_like_ratio,
+                    max_like_ratio=max_like_ratio,
+                    min_total_interactions=min_interactions
+                )
+            except ValueError as e:
+                click.echo(f"Error with rating filter: {e}", err=True)
+                return
+        
         # Build search parameters
         # If sortBy is specified, don't use regular sort option
         sort_option_obj = None if sort_by else (SortOption(sort) if sort in [e.value for e in SortOption] else SortOption.MOST_DOWNLOADED)
@@ -176,6 +237,9 @@ def search_command(query, nsfw, types, base_model, sort, sort_by, sort_direction
             sort_option=sort_option_obj,
             sort_by_field=sort_by_field_obj,
             sort_by_direction=sort_by_direction_obj,
+            published_date_range=published_date_range_obj,
+            updated_date_range=updated_date_range_obj,
+            rating_filter=rating_filter_obj,
             limit=limit,
             model_types=parsed_types if parsed_types else None,
             base_model=base_model
@@ -191,6 +255,44 @@ def search_command(query, nsfw, types, base_model, sort, sort_by, sort_direction
             click.echo("Including NSFW content")
         if sort_by:
             click.echo(f"Advanced sort: {sort_by} ({sort_direction})")
+        if published_date_range_obj:
+            if published_within:
+                click.echo(f"Published within: {published_within}")
+            else:
+                date_info = []
+                if published_after:
+                    date_info.append(f"after {published_after}")
+                if published_before:
+                    date_info.append(f"before {published_before}")
+                if date_info:
+                    click.echo(f"Published: {' and '.join(date_info)}")
+        if updated_date_range_obj:
+            if updated_within:
+                click.echo(f"Updated within: {updated_within} (experimental)")
+            else:
+                date_info = []
+                if updated_after:
+                    date_info.append(f"after {updated_after}")
+                if updated_before:
+                    date_info.append(f"before {updated_before}")
+                if date_info:
+                    click.echo(f"Updated: {' and '.join(date_info)} (experimental)")
+        
+        # Display rating filter info - Phase B-2
+        if rating_filter_obj:
+            rating_info = []
+            if min_likes:
+                rating_info.append(f"min likes: {min_likes}")
+            if max_likes:
+                rating_info.append(f"max likes: {max_likes}")
+            if min_like_ratio:
+                rating_info.append(f"min like ratio: {min_like_ratio:.2f}")
+            if max_like_ratio:
+                rating_info.append(f"max like ratio: {max_like_ratio:.2f}")
+            if min_interactions:
+                rating_info.append(f"min interactions: {min_interactions}")
+            if rating_info:
+                click.echo(f"Rating filters: {', '.join(rating_info)}")
         
         # Use pagination to get the requested number of results
         results = []
@@ -209,6 +311,10 @@ def search_command(query, nsfw, types, base_model, sort, sort_by, sort_direction
                 # Stop if no items in this page (end of results)
                 if not page_items:
                     break
+                
+                # Apply client-side rating filtering - Phase B-2
+                if rating_filter_obj:
+                    page_items = [item for item in page_items if rating_filter_obj.matches_model(item)]
                 
                 remaining = limit - collected
                 

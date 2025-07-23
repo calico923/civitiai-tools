@@ -8,6 +8,11 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+try:
+    import dateutil.parser
+except ImportError:
+    # Fallback if dateutil is not available
+    dateutil = None
 from enum import Enum
 from typing import Dict, List, Any, Optional, Set, Tuple, Union
 import re
@@ -150,6 +155,231 @@ class DateRange:
         return errors
 
 
+class DateFilterType(Enum):
+    """Type of date filtering per Phase B-1."""
+    PUBLISHED = "published"
+    UPDATED = "updated"
+
+
+@dataclass
+class FlexibleDateRange:
+    """
+    Flexible date range filtering for Phase B-1.
+    Supports both published and updated date filtering with multiple input formats.
+    """
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    filter_type: DateFilterType = DateFilterType.PUBLISHED
+    
+    def __post_init__(self):
+        """Validate dates after initialization."""
+        if self.start_date and self.end_date:
+            if self.start_date > self.end_date:
+                raise ValueError("Start date must be before end date")
+    
+    @classmethod
+    def from_string_dates(cls, start_str: Optional[str] = None, end_str: Optional[str] = None, 
+                         filter_type: DateFilterType = DateFilterType.PUBLISHED) -> 'FlexibleDateRange':
+        """
+        Create FlexibleDateRange from string dates.
+        
+        Supports formats:
+        - ISO dates: "2024-07-18", "2024-07-18T12:00:00"
+        - Relative periods: "30days", "3months", "1year"
+        """
+        start_date = None
+        end_date = None
+        
+        if start_str:
+            start_date = cls._parse_date_string(start_str)
+        
+        if end_str:
+            end_date = cls._parse_date_string(end_str)
+            
+        return cls(start_date=start_date, end_date=end_date, filter_type=filter_type)
+    
+    @classmethod
+    def from_relative_period(cls, period_str: str, filter_type: DateFilterType = DateFilterType.PUBLISHED) -> 'FlexibleDateRange':
+        """
+        Create date range from relative period like "30days", "3months", "1year".
+        """
+        now = datetime.now()
+        
+        # Parse relative period
+        if period_str.endswith('days'):
+            days = int(period_str[:-4])
+            start_date = now - timedelta(days=days)
+        elif period_str.endswith('months'):
+            months = int(period_str[:-6])
+            start_date = now - timedelta(days=months * 30)  # Approximate
+        elif period_str.endswith('year') or period_str.endswith('years'):
+            years = int(period_str.rstrip('syear'))
+            start_date = now - timedelta(days=years * 365)  # Approximate
+        else:
+            raise ValueError(f"Unsupported period format: {period_str}")
+            
+        return cls(start_date=start_date, end_date=now, filter_type=filter_type)
+    
+    @staticmethod
+    def _parse_date_string(date_str: str) -> datetime:
+        """Parse various date string formats."""
+        # Try with dateutil if available
+        if dateutil:
+            try:
+                return dateutil.parser.parse(date_str)
+            except Exception:
+                pass
+        
+        # Fallback to common formats
+        formats = [
+            '%Y-%m-%d',           # 2024-07-18
+            '%Y-%m-%dT%H:%M:%S',  # 2024-07-18T12:00:00
+            '%Y-%m-%d %H:%M:%S',  # 2024-07-18 12:00:00
+            '%Y/%m/%d',           # 2024/07/18
+            '%m/%d/%Y',           # 07/18/2024
+        ]
+        
+        for fmt in formats:
+            try:
+                return datetime.strptime(date_str, fmt)
+            except ValueError:
+                continue
+                
+        raise ValueError(f"Unable to parse date: {date_str}")
+    
+    def to_api_params(self) -> Dict[str, str]:
+        """Convert to CivitAI API parameters."""
+        params = {}
+        
+        if self.start_date or self.end_date:
+            # Use AllTime period for custom date ranges
+            params['period'] = 'AllTime'
+            
+            if self.start_date:
+                params['periodStartDate'] = self.start_date.isoformat()
+            
+            if self.end_date:
+                params['periodEndDate'] = self.end_date.isoformat()
+        
+        return params
+    
+    def validate(self) -> List[str]:
+        """Validate date range."""
+        errors = []
+        
+        if self.start_date and self.end_date:
+            if self.start_date > self.end_date:
+                errors.append("Start date must be before end date")
+        
+        if self.start_date and self.start_date > datetime.now():
+            errors.append("Start date cannot be in the future")
+            
+        if self.end_date and self.end_date > datetime.now():
+            errors.append("End date cannot be in the future")
+            
+        return errors
+
+
+@dataclass  
+class RatingFilter:
+    """
+    Rating/Likes filtering system for Phase B-2.
+    Based on thumbsUpCount since traditional rating system is discontinued.
+    """
+    min_thumbs_up: Optional[int] = None
+    max_thumbs_up: Optional[int] = None
+    min_thumbs_down: Optional[int] = None
+    max_thumbs_down: Optional[int] = None
+    min_like_ratio: Optional[float] = None  # thumbsUp / (thumbsUp + thumbsDown)
+    max_like_ratio: Optional[float] = None
+    min_total_interactions: Optional[int] = None  # thumbsUp + thumbsDown
+    
+    def __post_init__(self):
+        """Validate rating filter values."""
+        if self.min_like_ratio is not None:
+            if not 0.0 <= self.min_like_ratio <= 1.0:
+                raise ValueError("min_like_ratio must be between 0.0 and 1.0")
+        if self.max_like_ratio is not None:
+            if not 0.0 <= self.max_like_ratio <= 1.0:
+                raise ValueError("max_like_ratio must be between 0.0 and 1.0")
+        if self.min_like_ratio is not None and self.max_like_ratio is not None:
+            if self.min_like_ratio > self.max_like_ratio:
+                raise ValueError("min_like_ratio must be <= max_like_ratio")
+    
+    def matches_model(self, model_data: Dict[str, Any]) -> bool:
+        """Check if model matches rating filter criteria."""
+        stats = model_data.get('stats', {})
+        thumbs_up = stats.get('thumbsUpCount', 0)
+        thumbs_down = stats.get('thumbsDownCount', 0)
+        total_interactions = thumbs_up + thumbs_down
+        
+        # Check thumbs up range
+        if self.min_thumbs_up is not None and thumbs_up < self.min_thumbs_up:
+            return False
+        if self.max_thumbs_up is not None and thumbs_up > self.max_thumbs_up:
+            return False
+            
+        # Check thumbs down range
+        if self.min_thumbs_down is not None and thumbs_down < self.min_thumbs_down:
+            return False
+        if self.max_thumbs_down is not None and thumbs_down > self.max_thumbs_down:
+            return False
+            
+        # Check total interactions
+        if self.min_total_interactions is not None and total_interactions < self.min_total_interactions:
+            return False
+            
+        # Check like ratio
+        if total_interactions > 0:
+            like_ratio = thumbs_up / total_interactions
+            if self.min_like_ratio is not None and like_ratio < self.min_like_ratio:
+                return False
+            if self.max_like_ratio is not None and like_ratio > self.max_like_ratio:
+                return False
+        elif self.min_like_ratio is not None and self.min_like_ratio > 0:
+            # If no interactions but minimum ratio required, exclude
+            return False
+            
+        return True
+    
+    def to_api_params(self) -> Dict[str, Any]:
+        """
+        Convert to API parameters. 
+        Note: CivitAI API doesn't support thumbs filtering directly,
+        so this is primarily for post-processing filtering.
+        """
+        params = {}
+        # API doesn't support thumbs filtering, but we can use sort by likes
+        if self.min_thumbs_up is not None and self.min_thumbs_up > 0:
+            # Suggest using "Most Liked" sort for better results
+            params['_suggested_sort'] = 'Most Liked'
+        return params
+    
+    def validate(self) -> List[str]:
+        """Validate rating filter parameters."""
+        errors = []
+        
+        if self.min_thumbs_up is not None and self.min_thumbs_up < 0:
+            errors.append("min_thumbs_up must be non-negative")
+        if self.max_thumbs_up is not None and self.max_thumbs_up < 0:
+            errors.append("max_thumbs_up must be non-negative")
+        if self.min_thumbs_down is not None and self.min_thumbs_down < 0:
+            errors.append("min_thumbs_down must be non-negative")
+        if self.max_thumbs_down is not None and self.max_thumbs_down < 0:
+            errors.append("max_thumbs_down must be non-negative")
+        if self.min_total_interactions is not None and self.min_total_interactions < 0:
+            errors.append("min_total_interactions must be non-negative")
+            
+        if (self.min_thumbs_up is not None and self.max_thumbs_up is not None 
+            and self.min_thumbs_up > self.max_thumbs_up):
+            errors.append("min_thumbs_up must be <= max_thumbs_up")
+        if (self.min_thumbs_down is not None and self.max_thumbs_down is not None 
+            and self.min_thumbs_down > self.max_thumbs_down):
+            errors.append("min_thumbs_down must be <= max_thumbs_down")
+            
+        return errors
+
+
 @dataclass
 class DownloadRange:
     """Download count range per requirement 10.1."""
@@ -201,6 +431,14 @@ class AdvancedSearchParams:
     # Advanced filtering (Requirement 10)
     download_range: Optional[DownloadRange] = None
     date_range: Optional[DateRange] = None
+    
+    # Phase B-1: Flexible date filtering
+    published_date_range: Optional[FlexibleDateRange] = None
+    updated_date_range: Optional[FlexibleDateRange] = None
+    
+    # Phase B-2: Rating/Likes filtering
+    rating_filter: Optional[RatingFilter] = None
+    
     nsfw_filter: NSFWFilter = NSFWFilter.INCLUDE_ALL
     quality_filter: ModelQuality = ModelQuality.ALL
     commercial_filter: CommercialUse = CommercialUse.ALL
@@ -245,6 +483,16 @@ class AdvancedSearchParams:
         if self.date_range:
             errors.extend(self.date_range.validate())
         
+        # Phase B-1: Validate date filtering
+        if self.published_date_range:
+            errors.extend(self.published_date_range.validate())
+        if self.updated_date_range:
+            errors.extend(self.updated_date_range.validate())
+        
+        # Phase B-2: Validate rating filtering
+        if self.rating_filter:
+            errors.extend(self.rating_filter.validate())
+        
         # Validate limits
         if self.limit <= 0:
             errors.append("Limit must be positive")
@@ -284,6 +532,14 @@ class AdvancedSearchParams:
         # Date range
         if self.date_range:
             params.update(self.date_range.to_api_params())
+        
+        # Phase B-1: Flexible date filtering (prioritize over legacy date_range)
+        if self.published_date_range:
+            params.update(self.published_date_range.to_api_params())
+        elif self.updated_date_range:
+            # Note: CivitAI API currently only supports published date filtering
+            # Updated date filtering would require additional API support
+            params.update(self.updated_date_range.to_api_params())
         
         # NSFW filtering
         if self.nsfw_filter != NSFWFilter.INCLUDE_ALL:
