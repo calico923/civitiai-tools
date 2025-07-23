@@ -8,6 +8,8 @@ import click
 import asyncio
 import json
 import sys
+import csv
+import io
 from pathlib import Path
 from typing import List, Optional
 import logging
@@ -108,11 +110,12 @@ def cli(ctx, config, verbose):
 
 @cli.command('search')
 @click.argument('query')
-@click.option('--nsfw', is_flag=True, help='Include NSFW content')
 @click.option('--nsfw-level', 
               type=click.Choice(['sfw', 'nsfw', 'all']), 
+              default='sfw',
               help='NSFW filtering level: sfw (safe content only), nsfw (NSFW content only), all (both SFW and NSFW)')
 @click.option('--types', help='Model types (Checkpoint, LoRA, etc.) - comma-separated or space-separated')
+@click.option('--tags', help='Explicit tags for filtering (comma-separated) - distinct from search query')
 @click.option('--base-model', help='Base model filter (e.g., "Pony Diffusion XL", "SDXL 1.0", "Flux.1 D")')
 @click.option('--category', help='Model categories (character, style, concept, etc.) - comma-separated for multiple')
 @click.option('--sort', 
@@ -147,7 +150,7 @@ def cli(ctx, config, verbose):
 @click.option('--format', 'output_format', 
               type=click.Choice(['table', 'json', 'simple']), 
               default='table', help='Output format')
-def search_command(query, nsfw, nsfw_level, types, base_model, category, sort, sort_by, sort_direction, 
+def search_command(query, nsfw_level, types, tags, base_model, category, sort, sort_by, sort_direction, 
                   published_after, published_before, published_within,
                   updated_after, updated_before, updated_within,
                   min_likes, max_likes, min_like_ratio, max_like_ratio, min_interactions,
@@ -164,6 +167,16 @@ def search_command(query, nsfw, nsfw_level, types, base_model, category, sort, s
             else:
                 # Single type or space would be handled as single string
                 parsed_types = [types.strip()]
+        
+        # Parse tags - FIXED: Handle explicit tags separate from query
+        parsed_tags = []
+        if tags:
+            if ',' in tags:
+                # Comma-separated: "anime,style,character"
+                parsed_tags = [t.strip() for t in tags.split(',')]
+            else:
+                # Single tag
+                parsed_tags = [tags.strip()]
         
         # Handle sortBy parameters
         sort_by_field_obj = None
@@ -254,7 +267,7 @@ def search_command(query, nsfw, nsfw_level, types, base_model, category, sort, s
                 return
         
         # Parse NSFW level parameter - Phase C-3
-        nsfw_level_obj = None
+        nsfw_level_obj = NSFWLevel.SFW  # Default to SFW
         if nsfw_level:
             try:
                 if nsfw_level == 'sfw':
@@ -267,13 +280,22 @@ def search_command(query, nsfw, nsfw_level, types, base_model, category, sort, s
                 click.echo(f"Error parsing NSFW level: {e}", err=True)
                 return
         
+        # Determine nsfw_filter based on nsfw_level
+        if nsfw_level_obj == NSFWLevel.SFW:
+            nsfw_filter_obj = NSFWFilter.SFW_ONLY
+        elif nsfw_level_obj == NSFWLevel.NSFW:
+            nsfw_filter_obj = NSFWFilter.NSFW_ONLY
+        else:  # NSFWLevel.ALL
+            nsfw_filter_obj = NSFWFilter.INCLUDE_ALL
+        
         # Build search parameters
         # If sortBy is specified, don't use regular sort option
         sort_option_obj = None if sort_by else (SortOption(sort) if sort in [e.value for e in SortOption] else SortOption.MOST_DOWNLOADED)
         
         params = AdvancedSearchParams(
             query=query,
-            nsfw_filter=NSFWFilter.SFW_ONLY if not nsfw else NSFWFilter.INCLUDE_ALL,
+            tags=parsed_tags if parsed_tags else None,  # FIXED: Add explicit tags support
+            nsfw_filter=nsfw_filter_obj,
             nsfw_level=nsfw_level_obj,  # Phase C-3: NSFW level filtering
             sort_option=sort_option_obj,
             sort_by_field=sort_by_field_obj,
@@ -291,12 +313,18 @@ def search_command(query, nsfw, nsfw_level, types, base_model, category, sort, s
         click.echo(f"Searching for: {query}")
         if parsed_types:
             click.echo(f"Types: {', '.join(parsed_types)}")
+        if parsed_tags:
+            click.echo(f"Tags: {', '.join(parsed_tags)}")
         if base_model:
             click.echo(f"Base model: {base_model}")
         if parsed_categories:
             click.echo(f"Categories: {', '.join([cat.value for cat in parsed_categories])}")
-        if nsfw:
+        if nsfw_level == 'all':
             click.echo("Including NSFW content")
+        elif nsfw_level == 'nsfw':
+            click.echo("NSFW content only")
+        else:
+            click.echo("SFW content only")
         if sort_by:
             click.echo(f"Advanced sort: {sort_by} ({sort_direction})")
         if published_date_range_obj:
@@ -342,8 +370,13 @@ def search_command(query, nsfw, nsfw_level, types, base_model, category, sort, s
         results = []
         collected = 0
         
+        # If filtering by category or tags, we need to collect more to meet the target after filtering
+        # Track filtered count separately
+        filtered_count = 0
+        need_filtering = bool(category or tags)
+        
         # Convert limit to per-page limit (max 100 per CivitAI API for reliability)
-        per_page = min(100, limit)
+        per_page = 100  # Always use max for efficiency when filtering
         
         # Update params for pagination
         params.limit = per_page
@@ -360,16 +393,51 @@ def search_command(query, nsfw, nsfw_level, types, base_model, category, sort, s
                 if rating_filter_obj:
                     page_items = [item for item in page_items if rating_filter_obj.matches_model(item)]
                 
-                remaining = limit - collected
-                
-                # Take only what we need
-                items_to_take = min(len(page_items), remaining)
-                results.extend(page_items[:items_to_take])
-                collected += items_to_take
-                
-                # Stop if we have enough results
-                if collected >= limit:
-                    break
+                # If we need filtering, check how many would pass the filter
+                if need_filtering:
+                    # Count how many items pass the filter
+                    filtered_page_items = []
+                    for item in page_items:
+                        item_tags = item.get("tags", [])
+                        if not isinstance(item_tags, list):
+                            continue
+                        
+                        # Check category filter
+                        category_match = True
+                        if parsed_categories:
+                            category_match = any(cat.value in item_tags for cat in parsed_categories)
+                        
+                        # Check tags filter
+                        tags_match = True
+                        if parsed_tags:
+                            tags_match = all(tag in item_tags for tag in parsed_tags)
+                        
+                        if category_match and tags_match:
+                            filtered_page_items.append(item)
+                    
+                    # Add all items to results (for raw file)
+                    results.extend(page_items)
+                    collected += len(page_items)
+                    
+                    # Track filtered count
+                    filtered_count += len(filtered_page_items)
+                    
+                    # Show progress
+                    if need_filtering and (collected % 100 == 0 or filtered_count >= limit):
+                        click.echo(f"Progress: {collected} fetched, {filtered_count} match filter (target: {limit})")
+                    
+                    # Continue until we have enough filtered results
+                    if filtered_count >= limit:
+                        break
+                else:
+                    # No filtering needed, use original logic
+                    remaining = limit - collected
+                    items_to_take = min(len(page_items), remaining)
+                    results.extend(page_items[:items_to_take])
+                    collected += items_to_take
+                    
+                    if collected >= limit:
+                        break
                     
                 # Stop if no more pages available
                 metadata = page_data.get('metadata', {})
@@ -396,20 +464,88 @@ def search_command(query, nsfw, nsfw_level, types, base_model, category, sort, s
                 result_id = result.get("id", "N/A")
                 result_name = result.get("name", "Unknown")
                 click.echo(f"{result_id}: {result_name}")
-        else:  # table format
+        else:  # table format (CSV)
             click.echo(f"\nFound {len(results)} results:\n")
-            click.echo(f"{'ID':<8} {'Name':<40} {'Type':<15} {'Downloads':<10}")
-            click.echo("-" * 80)
+            # CSV Header
+            click.echo("ID,Name,Base Model,Type,Tags,Likes,Downloads,Images,Updates,NSFW,Image,Rent,RentCivit,Sell,Model URL,Download URL")
             
             for result in results:
                 # Handle dict format from API
                 result_name = result.get("name", "Unknown")
-                name = result_name[:37] + "..." if len(result_name) > 40 else result_name
+                name = result_name  # Don't truncate name for CSV output
                 result_id = result.get("id", 0)
                 result_type = result.get("type", "Unknown")
                 stats = result.get("stats", {})
+                
+                # Get statistics
                 downloads = stats.get("downloadCount", 0) if isinstance(stats, dict) else 0
-                click.echo(f"{result_id:<8} {name:<40} {result_type:<15} {downloads:<10}")
+                likes = stats.get("thumbsUpCount", 0) if isinstance(stats, dict) else 0
+                images = stats.get("imageCount", 0) if isinstance(stats, dict) else 0
+                
+                # Get base model information
+                model_versions = result.get("modelVersions", [])
+                base_models = []
+                updates_count = len(model_versions) if isinstance(model_versions, list) else 0
+                
+                if isinstance(model_versions, list) and model_versions:
+                    # Get base models from first version
+                    version = model_versions[0]
+                    if isinstance(version, dict):
+                        base_models = version.get("baseModel", []) or version.get("baseModels", [])
+                
+                if isinstance(base_models, list) and base_models:
+                    base_model_str = ", ".join(base_models)  # Show all base models
+                elif isinstance(base_models, str):
+                    base_model_str = base_models
+                else:
+                    base_model_str = "N/A"
+                base_model_display = base_model_str  # Don't truncate base model for CSV
+                
+                # Get NSFW status
+                nsfw_status = "NSFW" if result.get("nsfw", False) else "SFW"
+                
+                # Get commercial use permissions (4 types: Image, Rent, RentCivit, Sell)
+                allow_commercial = result.get("allowCommercialUse", [])
+                if not isinstance(allow_commercial, list):
+                    allow_commercial = []
+                
+                # Convert to binary format (1/0)
+                image_allowed = 1 if "Image" in allow_commercial else 0
+                rent_allowed = 1 if "Rent" in allow_commercial else 0
+                rent_civit_allowed = 1 if "RentCivit" in allow_commercial else 0
+                sell_allowed = 1 if "Sell" in allow_commercial else 0
+                
+                # Format numbers for display
+                downloads_display = f"{downloads//1000}k" if downloads >= 1000 else str(downloads)
+                likes_display = f"{likes//1000}k" if likes >= 1000 else str(likes)
+                images_display = f"{images//1000}k" if images >= 1000 else str(images)
+                
+                # Get tags (all tags registered for the model)
+                tags_list = result.get("tags", [])
+                if isinstance(tags_list, list):
+                    tags_str = ", ".join(tags_list)  # Show all tags for CSV
+                else:
+                    tags_str = "N/A"
+                
+                # Generate URLs
+                model_url = f"https://civitai.com/models/{result_id}"
+                
+                # Get download URL from first model version
+                download_url = "N/A"
+                model_versions = result.get("modelVersions", [])
+                if isinstance(model_versions, list) and model_versions:
+                    first_version = model_versions[0]
+                    if isinstance(first_version, dict):
+                        version_id = first_version.get("id")
+                        if version_id:
+                            download_url = f"https://civitai.com/api/download/models/{version_id}"
+                
+                # CSV format output using proper CSV writer
+                output_buffer = io.StringIO()
+                csv_writer = csv.writer(output_buffer)
+                csv_writer.writerow([result_id, name, base_model_display, result_type, tags_str, likes, downloads, images, updates_count, nsfw_status, image_allowed, rent_allowed, rent_civit_allowed, sell_allowed, model_url, download_url])
+                csv_line = output_buffer.getvalue().strip()
+                click.echo(csv_line)
         
         # Save to file if requested
         if output:
@@ -420,30 +556,202 @@ def search_command(query, nsfw, nsfw_level, types, base_model, category, sort, s
                 output_path = Path('downloads') / output_path
                 output_path.parent.mkdir(parents=True, exist_ok=True)
             
+            # Create intermediate file for raw data (always)
+            intermediate_path = output_path.parent / f"{output_path.stem}_raw{output_path.suffix}"
+            
+            # Apply client-side filtering if category or tags specified
+            filtered_results = results
+            if category or tags:
+                filtered_results = []
+                for result in results:
+                    result_tags = result.get("tags", [])
+                    if not isinstance(result_tags, list):
+                        continue
+                    
+                    # Check category filter (categories are also in tags)
+                    category_match = True
+                    if parsed_categories:
+                        category_match = any(cat.value in result_tags for cat in parsed_categories)
+                    
+                    # Check tags filter
+                    tags_match = True
+                    if parsed_tags:
+                        tags_match = all(tag in result_tags for tag in parsed_tags)
+                    
+                    # Include only if both filters pass
+                    if category_match and tags_match:
+                        filtered_results.append(result)
+                
+                click.echo(f"\nFiltered: {len(results)} results -> {len(filtered_results)} results")
+                if parsed_categories:
+                    click.echo(f"Category filter: {', '.join([cat.value for cat in parsed_categories])}")
+                if parsed_tags:
+                    click.echo(f"Tags filter: {', '.join(parsed_tags)}")
+            
             with open(output_path, 'w', encoding='utf-8') as f:
                 if output_format == 'simple':
                     # Save in simple format (ID: Name)
-                    for result in results:
+                    for result in filtered_results:
                         result_id = result.get("id", "N/A")
                         result_name = result.get("name", "Unknown")
                         f.write(f"{result_id}: {result_name}\n")
                 elif output_format == 'table':
-                    # Save in table format
-                    f.write(f"{'ID':<8} {'Name':<40} {'Type':<15} {'Downloads':<10}\n")
-                    f.write("-" * 80 + "\n")
-                    for result in results:
+                    # Save raw data to intermediate file if filtering
+                    if category or tags:
+                        with open(intermediate_path, 'w', encoding='utf-8') as raw_f:
+                            raw_f.write("ID,Name,Base Model,Type,Tags,Likes,Downloads,Images,Updates,NSFW,Image,Rent,RentCivit,Sell,Model URL,Download URL\n")
+                            csv_writer_raw = csv.writer(raw_f)
+                            for result in results:
+                                result_name = result.get("name", "Unknown")
+                                name = result_name  # Don't truncate name for CSV file output
+                                result_id = result.get("id", 0)
+                                result_type = result.get("type", "Unknown")
+                                stats = result.get("stats", {})
+                                
+                                # Get statistics
+                                downloads = stats.get("downloadCount", 0) if isinstance(stats, dict) else 0
+                                likes = stats.get("thumbsUpCount", 0) if isinstance(stats, dict) else 0
+                                images = stats.get("imageCount", 0) if isinstance(stats, dict) else 0
+                                
+                                # Get base model information
+                                model_versions = result.get("modelVersions", [])
+                                base_models = []
+                                updates_count = len(model_versions) if isinstance(model_versions, list) else 0
+                                
+                                if isinstance(model_versions, list) and model_versions:
+                                    # Get base models from first version
+                                    version = model_versions[0]
+                                    if isinstance(version, dict):
+                                        base_models = version.get("baseModel", []) or version.get("baseModels", [])
+                                
+                                if isinstance(base_models, list) and base_models:
+                                    base_model_str = ", ".join(base_models)  # Show all base models
+                                elif isinstance(base_models, str):
+                                    base_model_str = base_models
+                                else:
+                                    base_model_str = "N/A"
+                                base_model_display = base_model_str  # Don't truncate base model for CSV file
+                                
+                                # Get NSFW status
+                                nsfw_status = "NSFW" if result.get("nsfw", False) else "SFW"
+                                
+                                # Get tags (all tags registered for the model)
+                                tags_list = result.get("tags", [])
+                                if isinstance(tags_list, list):
+                                    tags_str = ", ".join(tags_list)  # Show all tags for CSV file
+                                else:
+                                    tags_str = "N/A"
+                                
+                                # Get commercial use permissions (4 types: Image, Rent, RentCivit, Sell)
+                                allow_commercial = result.get("allowCommercialUse", [])
+                                if not isinstance(allow_commercial, list):
+                                    allow_commercial = []
+                                
+                                # Convert to binary format (1/0)
+                                image_allowed = 1 if "Image" in allow_commercial else 0
+                                rent_allowed = 1 if "Rent" in allow_commercial else 0
+                                rent_civit_allowed = 1 if "RentCivit" in allow_commercial else 0
+                                sell_allowed = 1 if "Sell" in allow_commercial else 0
+                                
+                                # Generate URLs for raw data
+                                model_url = f"https://civitai.com/models/{result_id}"
+                                
+                                # Get download URL from first model version
+                                download_url = "N/A"
+                                model_versions = result.get("modelVersions", [])
+                                if isinstance(model_versions, list) and model_versions:
+                                    first_version = model_versions[0]
+                                    if isinstance(first_version, dict):
+                                        version_id = first_version.get("id")
+                                        if version_id:
+                                            download_url = f"https://civitai.com/api/download/models/{version_id}"
+                                
+                                csv_writer_raw.writerow([result_id, name, base_model_display, result_type, tags_str, likes, downloads, images, updates_count, nsfw_status, image_allowed, rent_allowed, rent_civit_allowed, sell_allowed, model_url, download_url])
+                    
+                    # Save filtered data to main file
+                    f.write("ID,Name,Base Model,Type,Tags,Likes,Downloads,Images,Updates,NSFW,Image,Rent,RentCivit,Sell,Model URL,Download URL\n")
+                    for result in filtered_results:
                         result_name = result.get("name", "Unknown")
-                        name = result_name[:37] + "..." if len(result_name) > 40 else result_name
+                        name = result_name  # Don't truncate name for CSV file output
                         result_id = result.get("id", 0)
                         result_type = result.get("type", "Unknown")
                         stats = result.get("stats", {})
+                        
+                        # Get statistics
                         downloads = stats.get("downloadCount", 0) if isinstance(stats, dict) else 0
-                        f.write(f"{result_id:<8} {name:<40} {result_type:<15} {downloads:<10}\n")
+                        likes = stats.get("thumbsUpCount", 0) if isinstance(stats, dict) else 0
+                        images = stats.get("imageCount", 0) if isinstance(stats, dict) else 0
+                        
+                        # Get base model information
+                        model_versions = result.get("modelVersions", [])
+                        base_models = []
+                        updates_count = len(model_versions) if isinstance(model_versions, list) else 0
+                        
+                        if isinstance(model_versions, list) and model_versions:
+                            # Get base models from first version
+                            version = model_versions[0]
+                            if isinstance(version, dict):
+                                base_models = version.get("baseModel", []) or version.get("baseModels", [])
+                        
+                        if isinstance(base_models, list) and base_models:
+                            base_model_str = ", ".join(base_models)  # Show all base models
+                        elif isinstance(base_models, str):
+                            base_model_str = base_models
+                        else:
+                            base_model_str = "N/A"
+                        base_model_display = base_model_str  # Don't truncate base model for CSV file
+                        
+                        # Get NSFW status
+                        nsfw_status = "NSFW" if result.get("nsfw", False) else "SFW"
+                        
+                        # Get commercial use permissions (4 types: Image, Rent, RentCivit, Sell)
+                        allow_commercial = result.get("allowCommercialUse", [])
+                        if not isinstance(allow_commercial, list):
+                            allow_commercial = []
+                        
+                        # Convert to binary format (1/0)
+                        image_allowed = 1 if "Image" in allow_commercial else 0
+                        rent_allowed = 1 if "Rent" in allow_commercial else 0
+                        rent_civit_allowed = 1 if "RentCivit" in allow_commercial else 0
+                        sell_allowed = 1 if "Sell" in allow_commercial else 0
+                        
+                        # Get tags (all tags registered for the model)
+                        tags_list = result.get("tags", [])
+                        if isinstance(tags_list, list):
+                            tags_str = ", ".join(tags_list)  # Show all tags for CSV file
+                        else:
+                            tags_str = "N/A"
+                        
+                        # Generate URLs for filtered data
+                        model_url = f"https://civitai.com/models/{result_id}"
+                        
+                        # Get download URL from first model version
+                        download_url = "N/A"
+                        model_versions = result.get("modelVersions", [])
+                        if isinstance(model_versions, list) and model_versions:
+                            first_version = model_versions[0]
+                            if isinstance(first_version, dict):
+                                version_id = first_version.get("id")
+                                if version_id:
+                                    download_url = f"https://civitai.com/api/download/models/{version_id}"
+                        
+                        # CSV format output using proper CSV writer
+                        csv_writer = csv.writer(f)
+                        csv_writer.writerow([result_id, name, base_model_display, result_type, tags_str, likes, downloads, images, updates_count, nsfw_status, image_allowed, rent_allowed, rent_civit_allowed, sell_allowed, model_url, download_url])
                 else:  # json format (default for file output)
-                    results_dict = [res.dict() if hasattr(res, 'dict') else res for res in results]
-                    json.dump(results_dict, f, indent=2, ensure_ascii=False)
+                    # Save raw data to intermediate file if filtering
+                    if category or tags:
+                        with open(intermediate_path, 'w', encoding='utf-8') as raw_f:
+                            raw_results_dict = [res.dict() if hasattr(res, 'dict') else res for res in results]
+                            json.dump(raw_results_dict, raw_f, indent=2, ensure_ascii=False)
+                    
+                    # Save filtered data to main file
+                    filtered_results_dict = [res.dict() if hasattr(res, 'dict') else res for res in filtered_results]
+                    json.dump(filtered_results_dict, f, indent=2, ensure_ascii=False)
             
             click.echo(f"\nResults saved to: {output_path} (format: {output_format})")
+            if category or tags:
+                click.echo(f"Raw data saved to: {intermediate_path}")
     
     run_async(run_search())
 

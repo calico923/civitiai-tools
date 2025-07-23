@@ -516,14 +516,11 @@ class AdvancedSearchParams:
         """Convert to CivitAI API parameters."""
         params = {}
         
-        # Basic parameters
-        if self.query:
-            # CRITICAL FIX: Use tags parameter for better search results per pre-investigation
-            # Convert query to tags for anime/character searches to work properly
-            if not self.tags:  # Only use query as tags if no explicit tags provided
-                params['tags'] = self.query
-            else:
-                params['query'] = self.query  # Keep query if explicit tags exist
+        # Basic parameters - FIXED: Keep query and tags separate per pre-investigation
+        if self.query and self.query.strip():  # Only add query if not empty
+            # Query should remain as query parameter, not converted to tags
+            # This allows proper distinction between search queries and tag filtering
+            params['query'] = self.query.strip()
         if self.username:
             params['username'] = self.username
         if self.model_types:
@@ -549,11 +546,7 @@ class AdvancedSearchParams:
             # Updated date filtering would require additional API support
             params.update(self.updated_date_range.to_api_params())
         
-        # NSFW filtering
-        if self.nsfw_filter != NSFWFilter.INCLUDE_ALL:
-            params['nsfw'] = self.nsfw_filter.value
-        
-        # Phase C-3: NSFW level filtering (simplified control)
+        # NSFW filtering - prioritize nsfw_level over nsfw_filter
         if self.nsfw_level:
             if self.nsfw_level == NSFWLevel.SFW:
                 params['nsfw'] = 'false'
@@ -561,7 +554,9 @@ class AdvancedSearchParams:
                 params['nsfw'] = 'true'
             elif self.nsfw_level == NSFWLevel.ALL:
                 # Don't include nsfw parameter to include both SFW and NSFW
-                params.pop('nsfw', None)
+                pass  # Don't set nsfw parameter
+        elif self.nsfw_filter != NSFWFilter.INCLUDE_ALL:
+            params['nsfw'] = self.nsfw_filter.value
         
         # Quality filters
         if self.quality_filter == ModelQuality.VERIFIED:
@@ -585,13 +580,15 @@ class AdvancedSearchParams:
                 params['allowCommercialUse'] = [self.commercial_filter.value]
             # Note: For ALL, we don't add the parameter to include all commercial use levels
         
-        # Tags and categories (keep separate per pre-investigation findings)
+        # Tags - FIXED: Proper tags parameter handling per pre-investigation
         if self.tags:
-            # CRITICAL FIX: Use 'tags' parameter name and comma-separated format per pre-investigation
+            # Use 'tags' parameter with comma-separated format for explicit tag filtering
             params['tags'] = ','.join(self.tags) if isinstance(self.tags, list) else self.tags
         
+        # Categories - FIXED: Proper category parameter handling per pre-investigation  
         if self.categories:
-            # Keep categories separate as per investigation findings
+            # Categories are separate from tags and use 'category' parameter
+            # Format: single category or comma-separated multiple categories
             params['category'] = ','.join([cat.value for cat in self.categories]) if len(self.categories) > 1 else self.categories[0].value
         
         # Base model
