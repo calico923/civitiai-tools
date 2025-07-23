@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 # Import core components
 from ..core.search.advanced_search import AdvancedSearchParams, SortOption, NSFWFilter, SortByField, SortDirection, FlexibleDateRange, DateFilterType, RatingFilter
@@ -408,10 +408,12 @@ def search_command(query, nsfw, types, base_model, sort, sort_by, sort_direction
 @click.argument('url_or_id')
 @click.option('--output-dir', '-d', help='Download directory')
 @click.option('--filename', '-f', help='Custom filename')
-@click.option('--verify', is_flag=True, help='Verify file integrity after download')
+@click.option('--verify', is_flag=True, help='Verify file integrity after download using all available hashes')
+@click.option('--verify-hash-type', type=click.Choice(['SHA256', 'BLAKE3', 'CRC32', 'AutoV1', 'AutoV2', 'AutoV3']), 
+              help='Specific hash type to verify (requires --verify)')
 @click.option('--scan-security', is_flag=True, help='Scan file for security threats')
 @click.option('--no-progress', is_flag=True, help='Disable progress bar')
-def download_command(url_or_id, output_dir, filename, verify, scan_security, no_progress):
+def download_command(url_or_id, output_dir, filename, verify, verify_hash_type, scan_security, no_progress):
     """Download a model by URL or ID."""
     
     async def run_download():
@@ -461,8 +463,103 @@ def download_command(url_or_id, output_dir, filename, verify, scan_security, no_
                 # Verify if requested
                 if verify:
                     click.echo("🔍 Verifying file integrity...")
-                    # In real implementation, would verify checksums
-                    click.echo("✅ File integrity verified")
+                    
+                    try:
+                        from ..data.models.file_models import HashValidator, HashType, FileHashes
+                        
+                        if model_id:
+                            # Fetch hash information from API
+                            try:
+                                await cli_context.initialize()
+                                model_response = await cli_context.client.get_models({'ids': [model_id]})
+                                
+                                if model_response.get('items'):
+                                    model = model_response['items'][0]
+                                    model_versions = model.get('modelVersions', [])
+                                    
+                                    if model_versions:
+                                        latest_version = model_versions[0]
+                                        files = latest_version.get('files', [])
+                                        
+                                        # Find file by name or use first file
+                                        downloaded_filename = Path(result.file_path).name
+                                        target_file = None
+                                        
+                                        for file_info in files:
+                                            if Path(file_info['name']).name == downloaded_filename:
+                                                target_file = file_info
+                                                break
+                                        
+                                        if not target_file and files:
+                                            target_file = files[0]  # Use first file as fallback
+                                        
+                                        if target_file:
+                                            hashes_data = target_file.get('hashes', {})
+                                            if hashes_data:
+                                                file_hashes = FileHashes(**hashes_data)
+                                                validator = HashValidator()
+                                                
+                                                if verify_hash_type:
+                                                    # Verify specific hash type
+                                                    hash_type_enum = HashType(verify_hash_type)
+                                                    expected_hash = file_hashes.get_hash_by_type(hash_type_enum)
+                                                    
+                                                    if expected_hash and validator.is_algorithm_supported(hash_type_enum):
+                                                        is_valid = validator.verify_file_hash(
+                                                            Path(result.file_path), expected_hash, hash_type_enum
+                                                        )
+                                                        if is_valid:
+                                                            click.echo(f"✅ {verify_hash_type} hash verification passed")
+                                                        else:
+                                                            click.echo(f"❌ {verify_hash_type} hash verification failed", err=True)
+                                                            return
+                                                    else:
+                                                        click.echo(f"⚠️  {verify_hash_type} hash not available or not supported")
+                                                else:
+                                                    # Verify all available hashes
+                                                    verification_results = validator.verify_file_hashes(
+                                                        Path(result.file_path), file_hashes
+                                                    )
+                                                    
+                                                    if verification_results:
+                                                        primary_result = validator.get_primary_verification_result(verification_results)
+                                                        
+                                                        passed_count = sum(1 for r in verification_results.values() if r)
+                                                        total_count = len(verification_results)
+                                                        
+                                                        if primary_result:
+                                                            click.echo(f"✅ File integrity verified ({passed_count}/{total_count} hashes passed)")
+                                                            
+                                                            # Show details in verbose mode
+                                                            if passed_count < total_count:
+                                                                click.echo("Hash verification details:")
+                                                                for hash_name, result in verification_results.items():
+                                                                    status = "✓" if result else "✗"
+                                                                    click.echo(f"  {hash_name}: {status}")
+                                                        else:
+                                                            click.echo(f"❌ File integrity verification failed", err=True)
+                                                            click.echo("Hash verification details:")
+                                                            for hash_name, result in verification_results.items():
+                                                                status = "✓" if result else "✗"
+                                                                click.echo(f"  {hash_name}: {status}")
+                                                            return
+                                                    else:
+                                                        click.echo("⚠️  No supported hash algorithms available for verification")
+                                            else:
+                                                click.echo("⚠️  No hash information available from API")
+                                        else:
+                                            click.echo("⚠️  Could not find file information in API response")
+                                    else:
+                                        click.echo("⚠️  No model versions found")
+                                else:
+                                    click.echo("⚠️  Model not found in API")
+                            except Exception as api_error:
+                                click.echo(f"⚠️  Could not fetch hash information from API: {api_error}")
+                        else:
+                            click.echo("⚠️  Cannot verify hashes without model ID")
+                            
+                    except Exception as verify_error:
+                        click.echo(f"⚠️  Hash verification failed: {verify_error}", err=True)
                 
                 # Security scan after download if requested
                 if scan_security:
@@ -806,12 +903,472 @@ def bulk_status_command(job_id):
     # This would show status of running/completed bulk jobs
 
 
+@cli.command('hash-verify')
+@click.argument('file_path', type=click.Path(exists=True))
+@click.option('--hash-type', type=click.Choice(['SHA256', 'BLAKE3', 'CRC32', 'AutoV1', 'AutoV2', 'AutoV3', 'MD5', 'SHA1']), 
+              help='Specific hash type to verify (default: all available)')
+@click.option('--expected-hash', help='Expected hash value to verify against')
+@click.option('--model-id', type=int, help='Model ID to fetch hash information from API')
+@click.option('--output', '-o', type=click.Choice(['simple', 'table', 'json']), default='simple',
+              help='Output format for results')
+@click.option('--async-verify', is_flag=True, help='Use asynchronous verification for large files')
+def hash_verify_command(file_path, hash_type, expected_hash, model_id, output, async_verify):
+    """Verify file hash integrity using CivitAI supported algorithms.
+    
+    Examples:
+      civitai hash-verify model.safetensors --hash-type SHA256 --expected-hash ABC123...
+      civitai hash-verify model.safetensors --model-id 12345
+      civitai hash-verify model.safetensors  # Verify all supported hashes
+    """
+    
+    async def run_hash_verify():
+        try:
+            from ..data.models.file_models import HashValidator, HashType, FileHashes
+            
+            file_path_obj = Path(file_path)
+            validator = HashValidator(use_threading=async_verify)
+            
+            # Show supported algorithms
+            supported_algorithms = validator.get_supported_algorithms()
+            if output == 'simple':
+                click.echo(f"File: {file_path_obj.name}")
+                click.echo(f"Supported algorithms: {[alg.value for alg in supported_algorithms]}")
+                click.echo()
+            
+            verification_results = {}
+            
+            # Case 1: Verify specific hash type with expected value
+            if hash_type and expected_hash:
+                hash_type_enum = HashType(hash_type)
+                if not validator.is_algorithm_supported(hash_type_enum):
+                    click.echo(f"Error: {hash_type} algorithm not supported", err=True)
+                    return
+                
+                is_valid = validator.verify_file_hash(file_path_obj, expected_hash, hash_type_enum)
+                verification_results[hash_type] = is_valid
+                
+                if output == 'simple':
+                    status = "✓ PASS" if is_valid else "✗ FAIL"
+                    click.echo(f"{hash_type}: {status}")
+                    if not is_valid:
+                        calculated = validator.calculate_hash(file_path_obj, hash_type_enum)
+                        click.echo(f"  Expected:   {expected_hash}")
+                        click.echo(f"  Calculated: {calculated}")
+            
+            # Case 2: Fetch hash information from API by model ID
+            elif model_id:
+                await cli_context.initialize()
+                
+                # Get model info from API
+                try:
+                    model_response = await cli_context.client.get_models({'ids': [model_id]})
+                    if not model_response.get('items'):
+                        click.echo(f"Error: Model {model_id} not found", err=True)
+                        return
+                    
+                    model = model_response['items'][0]
+                    model_versions = model.get('modelVersions', [])
+                    
+                    if not model_versions:
+                        click.echo(f"Error: No versions found for model {model_id}", err=True)
+                        return
+                    
+                    # Use latest version
+                    latest_version = model_versions[0]
+                    files = latest_version.get('files', [])
+                    
+                    # Find matching file by name
+                    target_file = None
+                    for file_info in files:
+                        if Path(file_info['name']).name == file_path_obj.name:
+                            target_file = file_info
+                            break
+                    
+                    if not target_file:
+                        click.echo(f"Warning: File {file_path_obj.name} not found in model {model_id}")
+                        click.echo("Available files:")
+                        for file_info in files:
+                            click.echo(f"  - {file_info['name']}")
+                        return
+                    
+                    # Create FileHashes object from API data
+                    hashes_data = target_file.get('hashes', {})
+                    file_hashes = FileHashes(**hashes_data)
+                    
+                    if output == 'simple':
+                        click.echo(f"Model ID: {model_id}")
+                        click.echo(f"Model: {model['name']}")
+                        click.echo(f"Version: {latest_version.get('name', 'Unknown')}")
+                        click.echo(f"Available hashes: {list(hashes_data.keys())}")
+                        click.echo()
+                    
+                    # Verify all available hashes
+                    if async_verify:
+                        verification_results = await validator.verify_file_hashes_async(file_path_obj, file_hashes)
+                    else:
+                        verification_results = validator.verify_file_hashes(file_path_obj, file_hashes)
+                    
+                except Exception as e:
+                    click.echo(f"Error fetching model information: {e}", err=True)
+                    return
+            
+            # Case 3: Calculate all supported hashes for the file
+            else:
+                if output == 'simple':
+                    click.echo("Calculating all supported hashes...")
+                
+                file_hashes = validator.get_file_hashes(file_path_obj)
+                calculated_hashes = file_hashes.to_dict()
+                
+                if output == 'simple':
+                    click.echo("Calculated hashes:")
+                    for hash_name, hash_value in calculated_hashes.items():
+                        click.echo(f"  {hash_name}: {hash_value}")
+                elif output == 'json':
+                    click.echo(json.dumps(calculated_hashes, indent=2))
+                elif output == 'table':
+                    click.echo("Hash Type    | Hash Value")
+                    click.echo("-------------|" + "-" * 64)
+                    for hash_name, hash_value in calculated_hashes.items():
+                        click.echo(f"{hash_name:<12} | {hash_value}")
+                
+                return
+            
+            # Output verification results
+            if verification_results:
+                primary_result = validator.get_primary_verification_result(verification_results)
+                
+                if output == 'simple':
+                    click.echo("Verification Results:")
+                    for hash_name, result in verification_results.items():
+                        status = "✓ PASS" if result else "✗ FAIL"
+                        click.echo(f"  {hash_name}: {status}")
+                    
+                    click.echo(f"\nPrimary verification: {'✓ PASS' if primary_result else '✗ FAIL'}")
+                    
+                elif output == 'json':
+                    output_data = {
+                        'file_path': str(file_path_obj),
+                        'verification_results': verification_results,
+                        'primary_verification': primary_result,
+                        'summary': {
+                            'total_hashes': len(verification_results),
+                            'passed': sum(1 for r in verification_results.values() if r),
+                            'failed': sum(1 for r in verification_results.values() if not r)
+                        }
+                    }
+                    click.echo(json.dumps(output_data, indent=2))
+                
+                elif output == 'table':
+                    click.echo("Hash Type    | Result | Status")
+                    click.echo("-------------|--------|--------")
+                    for hash_name, result in verification_results.items():
+                        status = "PASS" if result else "FAIL"
+                        icon = "✓" if result else "✗"
+                        click.echo(f"{hash_name:<12} | {icon:<6} | {status}")
+                    
+                    click.echo("-" * 35)
+                    primary_status = "PASS" if primary_result else "FAIL"
+                    primary_icon = "✓" if primary_result else "✗"
+                    click.echo(f"{'PRIMARY':<12} | {primary_icon:<6} | {primary_status}")
+                    
+        except Exception as e:
+            click.echo(f"Hash verification failed: {e}", err=True)
+            raise
+    
+    run_async(run_hash_verify())
+
+
+@cli.command('model-versions')
+@click.argument('model_id', type=int)
+@click.option('--base-model', help='Filter by base model (e.g., SDXL 1.0, Pony)')
+@click.option('--status', type=click.Choice(['Published', 'Draft', 'Scheduled']), help='Filter by status')
+@click.option('--min-downloads', type=int, help='Minimum download count')
+@click.option('--min-rating', type=float, help='Minimum rating')
+@click.option('--output', '-o', type=click.Choice(['simple', 'table', 'json']), default='simple',
+              help='Output format')
+@click.option('--compare', type=int, help='Compare with specific version ID')
+@click.option('--stats', is_flag=True, help='Show statistics summary')
+def model_versions_command(model_id, base_model, status, min_downloads, min_rating, output, compare, stats):
+    """List and manage model versions.
+    
+    Examples:
+      civitai model-versions 12345
+      civitai model-versions 12345 --base-model "SDXL 1.0" 
+      civitai model-versions 12345 --compare 67890 --output table
+      civitai model-versions 12345 --stats
+    """
+    
+    async def run_model_versions():
+        try:
+            await cli_context.initialize()
+            
+            from ..api.version_client import VersionClient
+            
+            version_client = VersionClient(cli_context.client)
+            
+            # Show statistics summary
+            if stats:
+                stats_data = await version_client.get_version_stats_summary(model_id)
+                
+                if not stats_data:
+                    click.echo(f"No data found for model {model_id}", err=True)
+                    return
+                
+                if output == 'json':
+                    click.echo(json.dumps(stats_data, indent=2))
+                elif output == 'table':
+                    click.echo("Model Version Statistics")
+                    click.echo("=" * 40)
+                    click.echo(f"Model ID: {stats_data['model_id']}")
+                    click.echo(f"Total Versions: {stats_data['total_versions']}")
+                    click.echo(f"Published Versions: {stats_data['published_versions']}")
+                    click.echo(f"Total Downloads: {stats_data['total_downloads']:,}")
+                    click.echo(f"Average Rating: {stats_data['average_rating']:.2f}")
+                    click.echo(f"Total Thumbs Up: {stats_data['total_thumbs_up']:,}")
+                    
+                    click.echo("\nBase Model Distribution:")
+                    for base_model, count in stats_data['base_model_distribution'].items():
+                        click.echo(f"  {base_model}: {count} versions")
+                    
+                    if stats_data['latest_version']:
+                        latest = stats_data['latest_version']
+                        click.echo(f"\nLatest Version:")
+                        click.echo(f"  ID: {latest['id']}")
+                        click.echo(f"  Name: {latest['name']}")
+                        click.echo(f"  Base Model: {latest['base_model']}")
+                        click.echo(f"  Downloads: {latest['stats'].get('downloadCount', 0):,}")
+                        
+                else:  # simple
+                    click.echo(f"Model {model_id} Statistics:")
+                    click.echo(f"  Total versions: {stats_data['total_versions']}")
+                    click.echo(f"  Published: {stats_data['published_versions']}")
+                    click.echo(f"  Total downloads: {stats_data['total_downloads']:,}")
+                    click.echo(f"  Average rating: {stats_data['average_rating']:.2f}")
+                    
+                    if stats_data['base_model_distribution']:
+                        click.echo(f"  Base models: {', '.join(stats_data['base_model_distribution'].keys())}")
+                
+                return
+            
+            # Get versions with filtering
+            versions = await version_client.filter_versions(
+                model_id=model_id,
+                base_model=base_model,
+                status=status,
+                min_downloads=min_downloads,
+                min_rating=min_rating
+            )
+            
+            if not versions:
+                click.echo(f"No versions found for model {model_id}", err=True)
+                return
+            
+            # Version comparison mode
+            if compare:
+                compare_version = await version_client.get_version_by_id(compare)
+                if not compare_version:
+                    click.echo(f"Comparison version {compare} not found", err=True)
+                    return
+                
+                # Find the version to compare against (use latest by default)
+                target_version = versions[0]  # Latest after filtering
+                
+                comparison = version_client.compare_versions(target_version, compare_version)
+                
+                if output == 'json':
+                    click.echo(json.dumps(comparison.to_dict(), indent=2))
+                elif output == 'table':
+                    click.echo("Version Comparison")
+                    click.echo("=" * 50)
+                    click.echo(f"Version 1: {target_version.name} (ID: {target_version.id})")
+                    click.echo(f"Version 2: {compare_version.name} (ID: {compare_version.id})")
+                    click.echo(f"Same Base Model: {'Yes' if comparison.same_base_model else 'No'}")
+                    click.echo(f"Newer Version: {target_version.name if comparison.version1_newer else compare_version.name}")
+                    click.echo(f"Download Difference: {comparison.download_diff:,}")
+                    click.echo(f"Rating Difference: {comparison.rating_diff:.2f}")
+                    click.echo(f"Size Difference: {comparison.size_diff_mb:.1f} MB")
+                    if comparison.days_apart:
+                        click.echo(f"Days Apart: {comparison.days_apart}")
+                else:  # simple
+                    newer = target_version.name if comparison.version1_newer else compare_version.name
+                    click.echo(f"Comparing {target_version.name} vs {compare_version.name}")
+                    click.echo(f"  Newer: {newer}")
+                    click.echo(f"  Download diff: {comparison.download_diff:,}")
+                    click.echo(f"  Rating diff: {comparison.rating_diff:.2f}")
+                    click.echo(f"  Size diff: {comparison.size_diff_mb:.1f} MB")
+                
+                return
+            
+            # Regular version listing
+            if output == 'json':
+                versions_data = [v.to_dict() for v in versions]
+                click.echo(json.dumps(versions_data, indent=2))
+                
+            elif output == 'table':
+                click.echo("Model Versions")
+                click.echo("=" * 80)
+                click.echo(f"{'ID':<10} {'Name':<20} {'Base Model':<15} {'Status':<10} {'Downloads':<10} {'Rating':<8}")
+                click.echo("-" * 80)
+                
+                for version in versions:
+                    click.echo(
+                        f"{version.id:<10} "
+                        f"{version.name[:19]:<20} "
+                        f"{version.base_model[:14]:<15} "
+                        f"{version.status:<10} "
+                        f"{version.download_count:<10,} "
+                        f"{version.rating:<8.2f}"
+                    )
+                    
+            else:  # simple
+                click.echo(f"Found {len(versions)} versions for model {model_id}:")
+                
+                for i, version in enumerate(versions):
+                    is_latest = " (Latest)" if version.is_latest else ""
+                    size_info = version.get_size_info()
+                    
+                    click.echo(f"\n{i+1}. {version.name}{is_latest}")
+                    click.echo(f"   ID: {version.id}")
+                    click.echo(f"   Base Model: {version.base_model}")
+                    click.echo(f"   Status: {version.status}")
+                    click.echo(f"   Downloads: {version.download_count:,}")
+                    click.echo(f"   Rating: {version.rating:.2f}")
+                    click.echo(f"   Like Ratio: {version.like_ratio:.2%}")
+                    click.echo(f"   Size: {size_info['total_size_mb']:.1f} MB ({size_info['total_files']} files)")
+                    
+                    if version.published_at:
+                        click.echo(f"   Published: {version.published_at.strftime('%Y-%m-%d %H:%M UTC')}")
+                    
+                    if version.description:
+                        # Strip HTML and truncate description
+                        import re
+                        desc = re.sub('<[^<]+?>', '', version.description)
+                        desc = desc.replace('\n', ' ').strip()
+                        if len(desc) > 100:
+                            desc = desc[:97] + "..."
+                        click.echo(f"   Description: {desc}")
+                        
+        except Exception as e:
+            click.echo(f"Failed to get model versions: {e}", err=True)
+            raise
+    
+    run_async(run_model_versions())
+
+
+@cli.command('version-updates')
+@click.argument('model_ids', nargs=-1, type=int, required=True)
+@click.option('--since', help='Check for updates since date (YYYY-MM-DD or days ago like "7days")')
+@click.option('--output', '-o', type=click.Choice(['simple', 'table', 'json']), default='simple',
+              help='Output format')
+def version_updates_command(model_ids, since, output):
+    """Check for version updates for specified models.
+    
+    Examples:
+      civitai version-updates 12345 67890
+      civitai version-updates 12345 --since "2024-01-01"
+      civitai version-updates 12345 --since "30days"
+    """
+    
+    async def run_version_updates():
+        try:
+            await cli_context.initialize()
+            
+            from ..api.version_client import VersionClient
+            import re
+            
+            version_client = VersionClient(cli_context.client)
+            
+            # Parse since parameter
+            if since:
+                if re.match(r'^\d+days?$', since.lower()):
+                    # Parse "30days" format
+                    days = int(re.search(r'\d+', since).group())
+                    since_date = datetime.now(timezone.utc) - timedelta(days=days)
+                else:
+                    # Parse YYYY-MM-DD format
+                    try:
+                        since_date = datetime.strptime(since, '%Y-%m-%d')
+                        since_date = since_date.replace(tzinfo=timezone.utc)
+                    except ValueError:
+                        click.echo(f"Invalid date format: {since}. Use YYYY-MM-DD or '30days'", err=True)
+                        return
+            else:
+                # Default to 30 days ago
+                since_date = datetime.now(timezone.utc) - timedelta(days=30)
+            
+            all_updates = []
+            
+            for model_id in model_ids:
+                updates = await version_client.check_for_updates(model_id, since_date)
+                
+                for update in updates:
+                    all_updates.append({
+                        'model_id': model_id,
+                        'version': update,
+                        'days_ago': (datetime.now(timezone.utc) - update.published_at).days if update.published_at else None
+                    })
+            
+            # Sort by publication date (newest first)
+            all_updates.sort(key=lambda x: x['version'].published_at or datetime.min, reverse=True)
+            
+            if not all_updates:
+                click.echo(f"No updates found since {since_date.strftime('%Y-%m-%d')}")
+                return
+            
+            if output == 'json':
+                updates_data = []
+                for update in all_updates:
+                    data = update['version'].to_dict()
+                    data['model_id'] = update['model_id']
+                    data['days_ago'] = update['days_ago']
+                    updates_data.append(data)
+                click.echo(json.dumps(updates_data, indent=2))
+                
+            elif output == 'table':
+                click.echo("Version Updates")
+                click.echo("=" * 70)
+                click.echo(f"{'Model ID':<10} {'Version':<15} {'Base Model':<15} {'Published':<12} {'Downloads':<10}")
+                click.echo("-" * 70)
+                
+                for update in all_updates:
+                    version = update['version']
+                    pub_date = version.published_at.strftime('%Y-%m-%d') if version.published_at else 'Unknown'
+                    
+                    click.echo(
+                        f"{update['model_id']:<10} "
+                        f"{version.name[:14]:<15} "
+                        f"{version.base_model[:14]:<15} "
+                        f"{pub_date:<12} "
+                        f"{version.download_count:<10,}"
+                    )
+                    
+            else:  # simple
+                click.echo(f"Found {len(all_updates)} updates since {since_date.strftime('%Y-%m-%d')}:")
+                
+                for update in all_updates:
+                    version = update['version']
+                    days_text = f" ({update['days_ago']} days ago)" if update['days_ago'] else ""
+                    
+                    click.echo(f"\nModel {update['model_id']}: {version.name}")
+                    click.echo(f"  Base Model: {version.base_model}")
+                    click.echo(f"  Published: {version.published_at.strftime('%Y-%m-%d %H:%M UTC') if version.published_at else 'Unknown'}{days_text}")
+                    click.echo(f"  Downloads: {version.download_count:,}")
+                    click.echo(f"  Status: {version.status}")
+                    
+        except Exception as e:
+            click.echo(f"Failed to check version updates: {e}", err=True)
+            raise
+    
+    run_async(run_version_updates())
+
+
 @cli.command('version')
 def version_command():
     """Show version information."""
     click.echo("CivitAI Downloader v2.0.0")
     click.echo("Enterprise-grade AI model downloader")
-    click.echo("Phase 1-7 Complete Implementation")
+    click.echo("Phase 1-8 Complete Implementation")
 
 
 if __name__ == '__main__':
