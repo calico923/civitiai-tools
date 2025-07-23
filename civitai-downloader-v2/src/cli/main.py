@@ -14,7 +14,7 @@ import logging
 from datetime import datetime
 
 # Import core components
-from ..core.search.advanced_search import AdvancedSearchParams, SortOption, NSFWFilter
+from ..core.search.advanced_search import AdvancedSearchParams, SortOption, NSFWFilter, SortByField, SortDirection
 from ..core.download.manager import DownloadManager
 from ..core.config.manager import ConfigManager
 from ..core.security.scanner import SecurityScanner
@@ -117,12 +117,22 @@ def cli(ctx, config, verbose):
                   'Most Liked', 'Most Discussed', 'Most Collected', 'Most Images'
               ]), 
               default='Most Downloaded', help='Sort order')
+@click.option('--sort-by', 
+              type=click.Choice([
+                  'tipped_amount', 'comment_count', 'favorite_count', 'rating_count', 'thumbs_up_count',
+                  'download_count', 'generation_count', 'published_at', 'updated_at'
+              ]), 
+              help='Advanced sort by specific field (uses models_v9:field:desc format)')
+@click.option('--sort-direction', 
+              type=click.Choice(['desc', 'asc']), 
+              default='desc', 
+              help='Sort direction (for --sort-by option)')
 @click.option('--limit', default=20, help='Number of results to show')
 @click.option('--output', '-o', help='Save results to JSON file')
 @click.option('--format', 'output_format', 
               type=click.Choice(['table', 'json', 'simple']), 
               default='table', help='Output format')
-def search_command(query, nsfw, types, base_model, sort, limit, output, output_format):
+def search_command(query, nsfw, types, base_model, sort, sort_by, sort_direction, limit, output, output_format):
     """Search for models on CivitAI."""
     
     async def run_search():
@@ -136,11 +146,36 @@ def search_command(query, nsfw, types, base_model, sort, limit, output, output_f
                 # Single type or space would be handled as single string
                 parsed_types = [types.strip()]
         
+        # Handle sortBy parameters
+        sort_by_field_obj = None
+        sort_by_direction_obj = SortDirection.DESC
+        
+        if sort_by:
+            # Map CLI sort_by options to enum values
+            sort_by_mapping = {
+                'tipped_amount': SortByField.TIPPED_AMOUNT,
+                'comment_count': SortByField.COMMENT_COUNT,
+                'favorite_count': SortByField.FAVORITE_COUNT,
+                'rating_count': SortByField.RATING_COUNT,
+                'thumbs_up_count': SortByField.THUMBS_UP_COUNT,
+                'download_count': SortByField.DOWNLOAD_COUNT,
+                'generation_count': SortByField.GENERATION_COUNT,
+                'published_at': SortByField.PUBLISHED_AT,
+                'updated_at': SortByField.UPDATED_AT
+            }
+            sort_by_field_obj = sort_by_mapping.get(sort_by)
+            sort_by_direction_obj = SortDirection.ASC if sort_direction == 'asc' else SortDirection.DESC
+        
         # Build search parameters
+        # If sortBy is specified, don't use regular sort option
+        sort_option_obj = None if sort_by else (SortOption(sort) if sort in [e.value for e in SortOption] else SortOption.MOST_DOWNLOADED)
+        
         params = AdvancedSearchParams(
             query=query,
             nsfw_filter=NSFWFilter.SFW_ONLY if not nsfw else NSFWFilter.INCLUDE_ALL,
-            sort_option=SortOption(sort) if sort in [e.value for e in SortOption] else SortOption.MOST_DOWNLOADED,
+            sort_option=sort_option_obj,
+            sort_by_field=sort_by_field_obj,
+            sort_by_direction=sort_by_direction_obj,
             limit=limit,
             model_types=parsed_types if parsed_types else None,
             base_model=base_model
@@ -154,6 +189,8 @@ def search_command(query, nsfw, types, base_model, sort, limit, output, output_f
             click.echo(f"Base model: {base_model}")
         if nsfw:
             click.echo("Including NSFW content")
+        if sort_by:
+            click.echo(f"Advanced sort: {sort_by} ({sort_direction})")
         
         # Use pagination to get the requested number of results
         results = []

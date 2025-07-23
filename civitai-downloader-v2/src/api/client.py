@@ -93,11 +93,12 @@ class CivitaiAPIClient:
         # Apply rate limiting
         await self.rate_limiter.wait()
         
-        # Make API request
-        url = f"{self.base_url}/models"
+        # CRITICAL FIX: Build URL with proper array parameter handling
+        url = self._build_url_with_array_params(f"{self.base_url}/models", params)
         
         try:
-            response = await self._http_client.get(url, params=params)
+            # Use the pre-built URL directly (no params needed)
+            response = await self._http_client.get(url)
             
             # Handle HTTP errors
             if response.status_code == 404:
@@ -178,6 +179,71 @@ class CivitaiAPIClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
         await self.close()
+    
+    def _process_array_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process array parameters for API compatibility.
+        
+        CivitAI API expects certain parameters in specific formats:
+        - allowCommercialUse: Uses array bracket notation: allowCommercialUse[]=Image
+        - others: Uses comma-separated strings
+        
+        Args:
+            params: Original parameters
+            
+        Returns:
+            Processed parameters compatible with CivitAI API
+        """
+        processed = {}
+        
+        for key, value in params.items():
+            if key == 'allowCommercialUse' and isinstance(value, list):
+                # CRITICAL FIX: allowCommercialUse uses array bracket notation
+                # httpx handles this automatically when we pass the list directly
+                processed[key] = value
+            elif key in ['types', 'tags', 'baseModels'] and isinstance(value, list):
+                # Other array parameters use comma-separated strings
+                processed[key] = ','.join(str(item) for item in value)
+            else:
+                # Non-array parameters pass through unchanged
+                processed[key] = value
+        
+        return processed
+    
+    def _build_url_with_array_params(self, base_url: str, params: Dict[str, Any]) -> str:
+        """
+        Build URL with proper array parameter handling for CivitAI API.
+        
+        CivitAI API expects allowCommercialUse as array bracket notation:
+        allowCommercialUse[]=Image&allowCommercialUse[]=Rent
+        
+        Args:
+            base_url: Base URL
+            params: Parameters to encode
+            
+        Returns:
+            Complete URL with properly encoded parameters
+        """
+        import urllib.parse
+        
+        query_parts = []
+        
+        for key, value in params.items():
+            if key == 'allowCommercialUse' and isinstance(value, list):
+                # Special handling for allowCommercialUse - use array bracket notation
+                for item in value:
+                    query_parts.append(f'{key}[]={urllib.parse.quote(str(item))}')
+            elif isinstance(value, list):
+                # Other array parameters use comma-separated format
+                query_parts.append(f'{key}={urllib.parse.quote(",".join(str(item) for item in value))}')
+            elif value is not None:
+                # Regular parameters
+                query_parts.append(f'{key}={urllib.parse.quote(str(value))}')
+        
+        if query_parts:
+            return f'{base_url}?{"&".join(query_parts)}'
+        else:
+            return base_url
     
     def _init_fallback_manager(self) -> Dict[str, Any]:
         """Initialize fallback manager for unofficial API features per design.md."""

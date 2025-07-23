@@ -32,9 +32,13 @@ class ModelQuality(Enum):
 
 
 class CommercialUse(Enum):
-    """Commercial use filtering per requirement 10.5."""
+    """Commercial use filtering per requirement 10.5 and pre-investigation findings."""
     ALL = "all"
-    COMMERCIAL_ALLOWED = "commercial"
+    # Commercial use levels as array per pre-investigation: Image, Rent, RentCivit, Sell
+    IMAGE_ALLOWED = "Image"  # Generated images commercial use
+    RENT_ALLOWED = "Rent"    # Model rental allowed
+    RENTCIVIT_ALLOWED = "RentCivit"  # CivitAI rental allowed
+    SELL_ALLOWED = "Sell"    # Model selling allowed
     NON_COMMERCIAL_ONLY = "non_commercial"
 
 
@@ -84,6 +88,30 @@ class CustomSortMetric(Enum):
     RATING_COUNT = "metrics.ratingCount:desc"
     DOWNLOAD_COUNT = "stats.downloadCount:desc"
     GENERATION_COUNT = "stats.generationCount:desc"
+
+
+class SortByField(Enum):
+    """Advanced sortBy fields per pre-investigation findings."""
+    # Metrics fields
+    TIPPED_AMOUNT = "metrics.tippedAmountCount"
+    COMMENT_COUNT = "metrics.commentCount"
+    FAVORITE_COUNT = "metrics.favoriteCount"
+    RATING_COUNT = "metrics.ratingCount"
+    THUMBS_UP_COUNT = "metrics.thumbsUpCount"
+    
+    # Stats fields  
+    DOWNLOAD_COUNT = "stats.downloadCount"
+    GENERATION_COUNT = "stats.generationCount"
+    
+    # Model fields
+    PUBLISHED_AT = "publishedAt"
+    UPDATED_AT = "updatedAt"
+
+
+class SortDirection(Enum):
+    """Sort direction for sortBy parameter."""
+    DESC = "desc"
+    ASC = "asc"
 
 
 class RiskLevel(Enum):
@@ -188,6 +216,10 @@ class AdvancedSearchParams:
     custom_sort: Optional[CustomSortMetric] = None
     sort_fallback: bool = True
     
+    # Advanced sortBy system (Phase A-3)
+    sort_by_field: Optional[SortByField] = None
+    sort_by_direction: SortDirection = SortDirection.DESC
+    
     # Search parameters
     limit: int = 100
     page: int = 1
@@ -242,11 +274,11 @@ class AdvancedSearchParams:
             # CRITICAL FIX: Use types parameter (not modelType) per pre-investigation findings
             params['types'] = ','.join(self.model_types) if isinstance(self.model_types, list) else self.model_types
         
-        # Pagination
+        # Pagination - PHASE A-4: Use cursor presence instead of query presence
         params['limit'] = min(self.limit, 200)  # Enforce API limit
-        if self.query and self.cursor:
+        if self.cursor:
             params['cursor'] = self.cursor
-        elif not self.query:
+        else:
             params['page'] = self.page
         
         # Date range
@@ -266,11 +298,18 @@ class AdvancedSearchParams:
             params['verified'] = True
             params['featured'] = True
         
-        # Commercial use
-        if self.commercial_filter == CommercialUse.COMMERCIAL_ALLOWED:
-            params['allowCommercialUse'] = True
-        elif self.commercial_filter == CommercialUse.NON_COMMERCIAL_ONLY:
-            params['allowCommercialUse'] = False
+        # Commercial use - CRITICAL FIX: Handle as array per pre-investigation findings
+        if self.commercial_filter and self.commercial_filter != CommercialUse.ALL:
+            if self.commercial_filter == CommercialUse.NON_COMMERCIAL_ONLY:
+                # For non-commercial only, exclude all commercial use types
+                params['allowCommercialUse'] = []
+            elif self.commercial_filter in [CommercialUse.IMAGE_ALLOWED, 
+                                           CommercialUse.RENT_ALLOWED,
+                                           CommercialUse.RENTCIVIT_ALLOWED, 
+                                           CommercialUse.SELL_ALLOWED]:
+                # For specific commercial use level, filter by that level
+                params['allowCommercialUse'] = [self.commercial_filter.value]
+            # Note: For ALL, we don't add the parameter to include all commercial use levels
         
         # Tags and categories (keep separate per pre-investigation findings)
         if self.tags:
@@ -285,8 +324,11 @@ class AdvancedSearchParams:
         if self.base_model:
             params['baseModels'] = self.base_model
         
-        # Sorting
-        if self.custom_sort:
+        # Sorting - Phase A-3: Support advanced sortBy parameter
+        if self.sort_by_field:
+            # Advanced sortBy format: models_v9:field:direction
+            params['sortBy'] = f"models_v9:{self.sort_by_field.value}:{self.sort_by_direction.value}"
+        elif self.custom_sort:
             params['sort'] = self.custom_sort.value
         elif self.sort_option:
             params['sort'] = self.sort_option.value
