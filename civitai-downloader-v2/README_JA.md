@@ -159,8 +159,8 @@ python -m src.cli.main search "character" --types "LORA,LoCon" --limit 15     # 
 python -m src.cli.main search "model" --types "Checkpoint,VAE,LORA" --limit 20  # 3つのタイプ
 
 # ベースモデルで絞り込み（Checkpoint向け）
-python -m src.cli.main search "anime" --types Checkpoint --base-model "Pony Diffusion XL" --limit 10
-python -m src.cli.main search "realistic" --types Checkpoint --base-model "SDXL 1.0" --limit 10
+python -m src.cli.main search "" --types Checkpoint --base-model "Pony" --limit 10
+python -m src.cli.main search "" --types Checkpoint --base-model "Illustrious" --limit 10
 
 # 複数キーワードで検索
 python -m src.cli.main search "anime portrait" --limit 15
@@ -192,7 +192,7 @@ python -m src.cli.main search "anime" --limit 50 --format simple --output anime_
 python -m src.cli.main search "style" --limit 30 --format table --output style_table.txt  # テーブル形式
 
 # 自動的にdownloads/フォルダに保存される（ディレクトリ指定なしの場合）
-python -m src.cli.main search "" --types Checkpoint --base-model "Pony Diffusion XL" --limit 100 --format simple --output pony_checkpoints.txt
+python -m src.cli.main search "" --types Checkpoint --base-model "Pony" --limit 100 --format simple --output pony_checkpoints.txt
 # → downloads/pony_checkpoints.txt に保存
 
 # カスタムパスを指定
@@ -236,7 +236,7 @@ python -m src.cli.main search "anime style" --limit 50 --output anime_models.jso
 python -m src.cli.main bulk-download --input anime_models.json
 
 # シンプル形式（ID: Name）のテキストファイルからもダウンロード可能
-python -m src.cli.main search "" --types Checkpoint --base-model "Pony Diffusion XL" --limit 30 --format simple --output pony_list.txt
+python -m src.cli.main search "" --types Checkpoint --base-model "Pony" --limit 30 --format simple --output pony_list.txt
 python -m src.cli.main bulk-download --input pony_list.txt
 
 # カスタムディレクトリへバルクダウンロード
@@ -406,30 +406,32 @@ find logs/ -name "*.log" -mtime +30 -delete
 ```bash
 # ベースモデル指定での検索（--base-modelオプション使用）
 python -m src.cli.main search "" --types Checkpoint --base-model "Pony" --limit 20
+python -m src.cli.main search "" --types Checkpoint --base-model "Illustrious" --limit 20
+python -m src.cli.main search "" --types Checkpoint --base-model "NoobAI" --limit 20
 python -m src.cli.main search "" --types Checkpoint --base-model "SDXL 1.0" --limit 20
-python -m src.cli.main search "" --types Checkpoint --base-model "SD 1.5" --limit 20
 
-# 注意：ベースモデルフィルターは結果を大幅に制限します
-# まずbaseModelなしで検索し、興味のあるモデルのbaseModel値を確認することを推奨
-python -m src.cli.main search "" --types Checkpoint --limit 20  # すべてのCheckpoint
-python -m src.cli.main search "realistic" --types Checkpoint --limit 15  # realistic系Checkpoint
+# 実際の使用例：各ベースモデルで人気モデルを取得
+python -m src.cli.main search "" --types Checkpoint --base-model "Pony" --limit 10
+# → Pony Diffusion V6 XL、Pony Realism等が取得される
 
-# 主要なベースモデル名の例（APIから実際に確認されたもの）
-# - "Pony" (Pony Diffusion XL系)
-# - "SDXL 1.0" (SDXL系)
-# - "SD 1.5" (Stable Diffusion 1.5系)  
-# - "Illustrious" (IllustriousXL系)
-# - "Flux.1 D" / "Flux.1 S" (Flux系)
+python -m src.cli.main search "" --types Checkpoint --base-model "Illustrious" --limit 10  
+# → WAI-NSFW-illustrious-SDXL、Hassaku XL (Illustrious)等が取得される
 
-# 実用例：まず一般検索でbaseModel値を確認
-python -m src.cli.main search "" --types Checkpoint --limit 5 --format table
-# 興味のあるモデルのbaseModel値を確認してから絞り込み検索
+python -m src.cli.main search "" --types Checkpoint --base-model "NoobAI" --limit 10
+# → NoobAI-XL (NAI-XL)、Nova Anime XL等が取得される
+
+# 動作確認済みベースモデル名
+# - "Pony" (Pony Diffusion XL系) - 500以上のモデル
+# - "Illustrious" (IllustriousXL系) - アニメ特化モデル
+# - "NoobAI" (NoobAI系) - 高品質アニメモデル  
+# - "SDXL 1.0" (SDXL系) - 汎用高解像度モデル
 ```
 
-**注意**: 
-- `--base-model`フィルターは結果を大幅に制限するため、まず一般検索でbaseModel値を確認することを推奨
-- ベースモデル名はCivitAI APIの正確な名称と一致する必要があります（"Pony"、"SDXL 1.0"、"SD 1.5"など）
-- 検索クエリとベースモデルフィルターの組み合わせは結果がゼロになる場合があります
+**重要なポイント**: 
+- 各ベースモデルで異なる特徴のモデルが取得できます
+- Ponyは500以上のモデルが利用可能で、アニメ・キャラクター生成に特化
+- 検索クエリと組み合わせる場合は結果が制限される場合があります（CivitAI API仕様）
+- より多くの結果が必要な場合は、まずbaseModelのみで検索してからフィルタリングすることを推奨
 
 #### 5. 大量モデル収集プロジェクト
 ```bash

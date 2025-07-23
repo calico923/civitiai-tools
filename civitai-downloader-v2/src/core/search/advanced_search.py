@@ -230,11 +230,17 @@ class AdvancedSearchParams:
         
         # Basic parameters
         if self.query:
-            params['query'] = self.query
+            # CRITICAL FIX: Use tags parameter for better search results per pre-investigation
+            # Convert query to tags for anime/character searches to work properly
+            if not self.tags:  # Only use query as tags if no explicit tags provided
+                params['tags'] = self.query
+            else:
+                params['query'] = self.query  # Keep query if explicit tags exist
         if self.username:
             params['username'] = self.username
         if self.model_types:
-            params['types'] = self.model_types
+            # CRITICAL FIX: Use types parameter (not modelType) per pre-investigation findings
+            params['types'] = ','.join(self.model_types) if isinstance(self.model_types, list) else self.model_types
         
         # Pagination
         params['limit'] = min(self.limit, 200)  # Enforce API limit
@@ -266,17 +272,18 @@ class AdvancedSearchParams:
         elif self.commercial_filter == CommercialUse.NON_COMMERCIAL_ONLY:
             params['allowCommercialUse'] = False
         
-        # Tags and categories (categories are integrated into tag system per requirement 11.5)
-        all_tags = list(self.tags) if self.tags else []
-        if self.categories:
-            all_tags.extend([cat.value for cat in self.categories])
+        # Tags and categories (keep separate per pre-investigation findings)
+        if self.tags:
+            # CRITICAL FIX: Use 'tags' parameter name and comma-separated format per pre-investigation
+            params['tags'] = ','.join(self.tags) if isinstance(self.tags, list) else self.tags
         
-        if all_tags:
-            params['tag'] = all_tags
+        if self.categories:
+            # Keep categories separate as per investigation findings
+            params['category'] = ','.join([cat.value for cat in self.categories]) if len(self.categories) > 1 else self.categories[0].value
         
         # Base model
         if self.base_model:
-            params['baseModel'] = self.base_model
+            params['baseModels'] = self.base_model
         
         # Sorting
         if self.custom_sort:

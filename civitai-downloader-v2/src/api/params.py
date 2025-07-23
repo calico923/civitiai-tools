@@ -53,6 +53,54 @@ class SearchParams:
             if value is not None:
                 params[key] = value
         return params
+    
+    def to_api_params(self) -> Dict[str, Any]:
+        """
+        Convert to CivitAI API parameters with correct parameter names.
+        
+        Returns:
+            Dictionary with API-compatible parameter names
+        """
+        params = {}
+        
+        # Basic parameters
+        if self.query is not None:
+            params['query'] = self.query
+        
+        if self.tags is not None:
+            params['tag'] = self.tags
+        
+        if self.limit is not None:
+            params['limit'] = self.limit
+            
+        if self.page is not None:
+            params['page'] = self.page
+            
+        if self.sort is not None:
+            params['sort'] = self.sort
+            
+        if self.period is not None:
+            params['period'] = self.period
+            
+        if self.nsfw is not None:
+            params['nsfw'] = self.nsfw
+            
+        if self.base_models is not None:
+            params['baseModels'] = self.base_models
+        
+        # CRITICAL FIX: Use modelType instead of types for compatibility with WebUI
+        if self.types is not None:
+            if isinstance(self.types, list) and len(self.types) == 1:
+                # Convert single-item list to string for API compatibility
+                params['modelType'] = self.types[0]
+            elif isinstance(self.types, list):
+                # For multiple types, use the types parameter (though this may not work well with queries)
+                params['types'] = self.types
+            else:
+                # Single string
+                params['modelType'] = self.types
+        
+        return params
 
 
 @dataclass
