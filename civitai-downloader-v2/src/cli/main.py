@@ -1128,8 +1128,8 @@ def model_versions_command(model_id, base_model, status, min_downloads, min_rati
                     click.echo(f"Total Thumbs Up: {stats_data['total_thumbs_up']:,}")
                     
                     click.echo("\nBase Model Distribution:")
-                    for base_model, count in stats_data['base_model_distribution'].items():
-                        click.echo(f"  {base_model}: {count} versions")
+                    for base_model_name, count in stats_data['base_model_distribution'].items():
+                        click.echo(f"  {base_model_name}: {count} versions")
                     
                     if stats_data['latest_version']:
                         latest = stats_data['latest_version']
