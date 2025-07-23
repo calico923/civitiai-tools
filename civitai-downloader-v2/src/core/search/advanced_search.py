@@ -28,6 +28,13 @@ class NSFWFilter(Enum):
     MATURE = "mature"
 
 
+class NSFWLevel(Enum):
+    """Detailed NSFW level filtering per user feedback (Phase C-3)."""
+    SFW = "sfw"           # Safe for work content only
+    NSFW = "nsfw"         # Include NSFW content
+    ALL = "all"           # Include all content regardless of NSFW status
+
+
 class ModelQuality(Enum):
     """Model quality filters per requirement 10.4."""
     ALL = "all"
@@ -440,6 +447,7 @@ class AdvancedSearchParams:
     rating_filter: Optional[RatingFilter] = None
     
     nsfw_filter: NSFWFilter = NSFWFilter.INCLUDE_ALL
+    nsfw_level: Optional[NSFWLevel] = None  # Phase C-3: NSFW level filtering
     quality_filter: ModelQuality = ModelQuality.ALL
     commercial_filter: CommercialUse = CommercialUse.ALL
     file_format: FileFormat = FileFormat.SAFETENSORS_ONLY
@@ -544,6 +552,16 @@ class AdvancedSearchParams:
         # NSFW filtering
         if self.nsfw_filter != NSFWFilter.INCLUDE_ALL:
             params['nsfw'] = self.nsfw_filter.value
+        
+        # Phase C-3: NSFW level filtering (simplified control)
+        if self.nsfw_level:
+            if self.nsfw_level == NSFWLevel.SFW:
+                params['nsfw'] = 'false'
+            elif self.nsfw_level == NSFWLevel.NSFW:
+                params['nsfw'] = 'true'
+            elif self.nsfw_level == NSFWLevel.ALL:
+                # Don't include nsfw parameter to include both SFW and NSFW
+                params.pop('nsfw', None)
         
         # Quality filters
         if self.quality_filter == ModelQuality.VERIFIED:

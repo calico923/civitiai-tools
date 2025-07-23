@@ -14,7 +14,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 # Import core components
-from ..core.search.advanced_search import AdvancedSearchParams, SortOption, NSFWFilter, SortByField, SortDirection, FlexibleDateRange, DateFilterType, RatingFilter
+from ..core.search.advanced_search import AdvancedSearchParams, SortOption, NSFWFilter, NSFWLevel, SortByField, SortDirection, FlexibleDateRange, DateFilterType, RatingFilter
 from ..core.download.manager import DownloadManager
 from ..core.config.manager import ConfigManager
 from ..core.security.scanner import SecurityScanner
@@ -109,8 +109,12 @@ def cli(ctx, config, verbose):
 @cli.command('search')
 @click.argument('query')
 @click.option('--nsfw', is_flag=True, help='Include NSFW content')
+@click.option('--nsfw-level', 
+              type=click.Choice(['sfw', 'nsfw', 'all']), 
+              help='NSFW filtering level: sfw (safe content only), nsfw (NSFW content only), all (both SFW and NSFW)')
 @click.option('--types', help='Model types (Checkpoint, LoRA, etc.) - comma-separated or space-separated')
 @click.option('--base-model', help='Base model filter (e.g., "Pony Diffusion XL", "SDXL 1.0", "Flux.1 D")')
+@click.option('--category', help='Model categories (character, style, concept, etc.) - comma-separated for multiple')
 @click.option('--sort', 
               type=click.Choice([
                   'Highest Rated', 'Most Downloaded', 'Newest', 'Oldest', 
@@ -143,7 +147,7 @@ def cli(ctx, config, verbose):
 @click.option('--format', 'output_format', 
               type=click.Choice(['table', 'json', 'simple']), 
               default='table', help='Output format')
-def search_command(query, nsfw, types, base_model, sort, sort_by, sort_direction, 
+def search_command(query, nsfw, nsfw_level, types, base_model, category, sort, sort_by, sort_direction, 
                   published_after, published_before, published_within,
                   updated_after, updated_before, updated_within,
                   min_likes, max_likes, min_like_ratio, max_like_ratio, min_interactions,
@@ -227,6 +231,42 @@ def search_command(query, nsfw, types, base_model, sort, sort_by, sort_direction
                 click.echo(f"Error with rating filter: {e}", err=True)
                 return
         
+        # Parse category parameter - Phase C-1
+        parsed_categories = None
+        if category:
+            try:
+                from ..core.search.advanced_search import ModelCategory
+                category_list = [cat.strip() for cat in category.replace(' ', ',').split(',') if cat.strip()]
+                parsed_categories = []
+                for cat in category_list:
+                    # Find matching category enum (case-insensitive)
+                    for model_cat in ModelCategory:
+                        if model_cat.value.lower() == cat.lower():
+                            parsed_categories.append(model_cat)
+                            break
+                    else:
+                        # Show available categories if invalid
+                        available = [cat.value for cat in ModelCategory]
+                        click.echo(f"Error: Invalid category '{cat}'. Available categories: {', '.join(available)}", err=True)
+                        return
+            except Exception as e:
+                click.echo(f"Error parsing categories: {e}", err=True)
+                return
+        
+        # Parse NSFW level parameter - Phase C-3
+        nsfw_level_obj = None
+        if nsfw_level:
+            try:
+                if nsfw_level == 'sfw':
+                    nsfw_level_obj = NSFWLevel.SFW
+                elif nsfw_level == 'nsfw':
+                    nsfw_level_obj = NSFWLevel.NSFW
+                elif nsfw_level == 'all':
+                    nsfw_level_obj = NSFWLevel.ALL
+            except Exception as e:
+                click.echo(f"Error parsing NSFW level: {e}", err=True)
+                return
+        
         # Build search parameters
         # If sortBy is specified, don't use regular sort option
         sort_option_obj = None if sort_by else (SortOption(sort) if sort in [e.value for e in SortOption] else SortOption.MOST_DOWNLOADED)
@@ -234,6 +274,7 @@ def search_command(query, nsfw, types, base_model, sort, sort_by, sort_direction
         params = AdvancedSearchParams(
             query=query,
             nsfw_filter=NSFWFilter.SFW_ONLY if not nsfw else NSFWFilter.INCLUDE_ALL,
+            nsfw_level=nsfw_level_obj,  # Phase C-3: NSFW level filtering
             sort_option=sort_option_obj,
             sort_by_field=sort_by_field_obj,
             sort_by_direction=sort_by_direction_obj,
@@ -242,7 +283,8 @@ def search_command(query, nsfw, types, base_model, sort, sort_by, sort_direction
             rating_filter=rating_filter_obj,
             limit=limit,
             model_types=parsed_types if parsed_types else None,
-            base_model=base_model
+            base_model=base_model,
+            categories=parsed_categories
         )
         
         # Perform search
@@ -251,6 +293,8 @@ def search_command(query, nsfw, types, base_model, sort, sort_by, sort_direction
             click.echo(f"Types: {', '.join(parsed_types)}")
         if base_model:
             click.echo(f"Base model: {base_model}")
+        if parsed_categories:
+            click.echo(f"Categories: {', '.join([cat.value for cat in parsed_categories])}")
         if nsfw:
             click.echo("Including NSFW content")
         if sort_by:
