@@ -1333,7 +1333,10 @@ def bulk_download_command(input_file, output_dir, batch_size, priority, verify_h
                 'batch_size': batch_size,
                 'priority': BulkPriority[priority],
                 'verify_hashes': verify_hashes,
-                'output_dir': output_dir or 'downloads/'
+                'output_dir': output_dir or 'downloads/',
+                'organize_folders': organize_folders,
+                'download_images': download_images,
+                'download_metadata': download_metadata
             }
             
             job_id = await bulk_manager.create_bulk_job(

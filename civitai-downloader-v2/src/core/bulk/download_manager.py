@@ -312,9 +312,44 @@ class BulkDownloadManager:
         # In real implementation, this would manage the download process
         print(f"Processing job {job_id} with {len(job.search_results)} search results")
         try:
-            # Simulate processing files and track download tasks
+            # Process files with enhanced folder organization and metadata
             task_counter = 0
+            base_output_dir = Path(job.options.get('output_dir', './downloads'))
+            organize_folders = job.options.get('organize_folders', True)
+            download_images = job.options.get('download_images', True)
+            download_metadata = job.options.get('download_metadata', True)
+            
             for search_result in job.search_results:
+                # Process each model - create organized folder structure
+                if organize_folders:
+                    # Create folder structure: Type/BaseModel/Tag/[ID] ModelName/
+                    folder_structure = determine_folder_structure(search_result)
+                    model_folder = generate_model_folder_name(search_result)
+                    full_model_dir = base_output_dir / folder_structure / model_folder
+                else:
+                    # Simple flat structure in output directory
+                    full_model_dir = base_output_dir
+                
+                # Ensure model directory exists
+                full_model_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Download preview image if enabled
+                if download_images:
+                    try:
+                        image_path = await download_preview_image(search_result, full_model_dir)
+                        if image_path:
+                            print(f"✓ Downloaded preview image: {Path(image_path).name}")
+                    except Exception as e:
+                        print(f"Warning: Could not download preview image: {e}")
+                
+                # Create metadata files if enabled
+                if download_metadata:
+                    try:
+                        create_metadata_files(search_result, full_model_dir)
+                        print(f"✓ Created metadata files in: {full_model_dir}")
+                    except Exception as e:
+                        print(f"Warning: Could not create metadata files: {e}")
+                
                 # Process each model version and file
                 for version in search_result.get('modelVersions', []):
                     for file_info in version.get('files', []):
@@ -327,12 +362,11 @@ class BulkDownloadManager:
                         if job.status == BulkStatus.PAUSED:
                             return job
                         
-                        # Download file with output directory from job options
-                        output_dir = job.options.get('output_dir', None)
+                        # Download file to organized directory structure
                         download_result = await self.download_manager.download_file(
                             url=file_info.get('downloadUrl', ''),
                             filename=file_info.get('name', 'unknown.file'),
-                            output_dir=output_dir
+                            output_dir=str(full_model_dir)
                         )
                         
                         if download_result.success:
