@@ -121,7 +121,7 @@ python -m pytest tests/unit/test_advanced_search.py -v
 
 ```bash
 # デバッグモードで実行
-python -m src.cli.main search "test" --format simple --limit 1
+python -m src.cli.main search "test" --format ids --limit 1
 
 # ログレベル変更
 export CIVITAI_LOG_LEVEL=DEBUG

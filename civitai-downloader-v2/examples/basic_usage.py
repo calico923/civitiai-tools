@@ -33,16 +33,16 @@ def basic_search_examples():
     print("=" * 60)
     
     # 基本検索
-    run_command('python -m src.cli.main search "anime" --limit 3 --format simple')
+    run_command('python -m src.cli.main search "anime" --limit 3 --format ids')
     
     # フィルタリング検索
-    run_command('python -m src.cli.main search "character" --types LORA --category character --limit 3 --format simple')
+    run_command('python -m src.cli.main search "character" --types LORA --category character --limit 3 --format ids')
     
     # 日付フィルタ
-    run_command('python -m src.cli.main search "style" --published-within 30days --limit 3 --format simple')
+    run_command('python -m src.cli.main search "style" --published-within 30days --limit 3 --format ids')
     
     # 高度ソート
-    run_command('python -m src.cli.main search "realistic" --sort-by download_count --sort-direction desc --limit 3 --format simple')
+    run_command('python -m src.cli.main search "realistic" --sort-by download_count --sort-direction desc --limit 3 --format ids')
 
 def advanced_search_examples():
     """高度な検索例"""
@@ -51,7 +51,7 @@ def advanced_search_examples():
     print("=" * 60)
     
     # 複数条件の組み合わせ
-    run_command('python -m src.cli.main search "cyberpunk" --category style,concept --types LORA --nsfw-level sfw --min-likes 100 --limit 3 --format simple')
+    run_command('python -m src.cli.main search "cyberpunk" --category style,concept --types LORA --nsfw-level sfw --min-likes 100 --limit 3 --format ids')
     
     # JSON出力
     output_file = "search_results.json"
@@ -85,13 +85,13 @@ def filtering_examples():
     print("=" * 60)
     
     # NSFWレベル制御
-    run_command('python -m src.cli.main search "anime" --nsfw-level sfw --limit 3 --format simple')
+    run_command('python -m src.cli.main search "anime" --nsfw-level sfw --limit 3 --format ids')
     
     # 評価フィルタ
-    run_command('python -m src.cli.main search "character" --min-like-ratio 0.9 --limit 3 --format simple')
+    run_command('python -m src.cli.main search "character" --min-like-ratio 0.9 --limit 3 --format ids')
     
     # 複数カテゴリ
-    run_command('python -m src.cli.main search "art" --category style,concept --limit 3 --format simple')
+    run_command('python -m src.cli.main search "art" --category style,concept --limit 3 --format ids')
 
 def main():
     """メイン実行関数"""

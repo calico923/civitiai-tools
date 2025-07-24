@@ -148,8 +148,8 @@ def cli(ctx, config, verbose):
 @click.option('--limit', default=20, help='Number of results to show')
 @click.option('--output', '-o', help='Save results to JSON file')
 @click.option('--format', 'output_format', 
-              type=click.Choice(['table', 'json', 'simple', 'bulk-json']), 
-              default='table', help='Output format')
+              type=click.Choice(['csv', 'json', 'ids', 'bulk-json']), 
+              default='csv', help='Output format (csv: structured table, json: complete data, ids: ID list only, bulk-json: for bulk download)')
 @click.option('--show-versions', is_flag=True, help='Show version details in table format')
 def search_command(query, nsfw_level, types, tags, base_model, category, sort, sort_by, sort_direction, 
                   published_after, published_before, published_within,
@@ -509,7 +509,7 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
             
             output_data = json.dumps(bulk_items, indent=2)
             click.echo(output_data)
-        elif output_format == 'simple':
+        elif output_format == 'ids':
             for result in results:
                 # Handle dict format from API
                 result_id = result.get("id", "N/A")
@@ -636,11 +636,12 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
         if output:
             # Determine output path - if no directory specified, use default download directory
             output_path = Path(output)
-            # If path doesn't contain directory separator, put in default directory
+            # If path doesn't contain directory separator, put in reports directory
             if '/' not in str(output) and '\\' not in str(output):
                 from ..core.config.env_loader import get_env_var
                 default_dir = get_env_var('CIVITAI_DOWNLOAD_DIR', './downloads')
-                output_path = Path(default_dir) / output_path
+                reports_dir = Path(default_dir) / 'reports'
+                output_path = reports_dir / output_path
                 output_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Create intermediate file for raw data (always)
@@ -691,8 +692,8 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                     click.echo(f"Base model filter: {base_model}")
             
             with open(output_path, 'w', encoding='utf-8') as f:
-                if output_format == 'simple':
-                    # Save in simple format (ID: Name)
+                if output_format == 'ids':
+                    # Save in ids format (ID: Name)
                     for result in filtered_results:
                         result_id = result.get("id", "N/A")
                         result_name = result.get("name", "Unknown")
@@ -1236,7 +1237,7 @@ def bulk_download_command(input_file, output_dir, batch_size, priority, verify_h
                                     download_item['version_name'] = version_name
                                 models_to_download.append(download_item)
                 except json.JSONDecodeError:
-                    # Parse as simple text format (ID: Name or just IDs)
+                    # Parse as ids text format (ID: Name or just IDs)
                     for line in content.split('\n'):
                         line = line.strip()
                         if not line:

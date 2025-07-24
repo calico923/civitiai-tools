@@ -202,7 +202,7 @@ security:
 
 ```bash
 # 詳細ログで実行
-python -m src.cli.main search "test" --format simple --limit 1
+python -m src.cli.main search "test" --format ids --limit 1
 
 # バージョン確認
 python -m src.cli.main version

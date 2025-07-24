@@ -169,7 +169,7 @@ python -m src.cli.main bulk-status
 | オプション | 説明 | 使用可能な値 | 例 |
 |------------|------|-------------|-----|
 | `--limit` | 結果数制限 | 整数（1以上） | `--limit 50` |
-| `--format` | 出力形式 | `table`, `json`, `simple` | `--format json` |
+| `--format` | 出力形式 | `table`, `json`, `ids` | `--format json` |
 | `-o, --output` | ファイル出力 | ファイルパス | `--output results.json` |
 
 ## 各コマンドのオプション詳細
@@ -373,7 +373,7 @@ security:
 
 ```bash
 # 詳細ログで実行
-python -m src.cli.main search "test" --format simple --limit 1
+python -m src.cli.main search "test" --format ids --limit 1
 
 # バージョン確認
 python -m src.cli.main version
