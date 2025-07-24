@@ -68,7 +68,7 @@ class SearchParams:
             params['query'] = self.query
         
         if self.tags is not None:
-            params['tag'] = self.tags
+            params['tags'] = self.tags
         
         if self.limit is not None:
             params['limit'] = self.limit
@@ -88,17 +88,9 @@ class SearchParams:
         if self.base_models is not None:
             params['baseModels'] = self.base_models
         
-        # CRITICAL FIX: Use modelType instead of types for compatibility with WebUI
+        # Use types parameter for CivitAI API compatibility
         if self.types is not None:
-            if isinstance(self.types, list) and len(self.types) == 1:
-                # Convert single-item list to string for API compatibility
-                params['modelType'] = self.types[0]
-            elif isinstance(self.types, list):
-                # For multiple types, use the types parameter (though this may not work well with queries)
-                params['types'] = self.types
-            else:
-                # Single string
-                params['modelType'] = self.types
+            params['types'] = self.types
         
         return params
 

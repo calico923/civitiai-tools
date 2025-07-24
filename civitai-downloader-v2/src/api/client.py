@@ -229,13 +229,10 @@ class CivitaiAPIClient:
         query_parts = []
         
         for key, value in params.items():
-            if key == 'allowCommercialUse' and isinstance(value, list):
-                # Special handling for allowCommercialUse - use array bracket notation
+            if isinstance(value, list):
+                # All array parameters use array bracket notation
                 for item in value:
                     query_parts.append(f'{key}[]={urllib.parse.quote(str(item))}')
-            elif isinstance(value, list):
-                # Other array parameters use comma-separated format
-                query_parts.append(f'{key}={urllib.parse.quote(",".join(str(item) for item in value))}')
             elif value is not None:
                 # Regular parameters
                 query_parts.append(f'{key}={urllib.parse.quote(str(value))}')

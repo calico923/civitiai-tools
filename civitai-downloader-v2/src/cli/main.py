@@ -1178,12 +1178,16 @@ def scan_command(file_path, detailed):
 @click.option('--scan-security', is_flag=True, help='Scan files for security threats')
 @click.option('--job-name', help='Name for this bulk download job')
 @click.option('--base-model', help='Filter to specific base model versions (e.g., "Illustrious", "NoobAI", "Pony")')
-def bulk_download_command(input_file, output_dir, batch_size, priority, verify_hashes, scan_security, job_name, base_model):
+@click.option('--organize-folders', is_flag=True, default=True, help='Organize files by Type/BaseModel/Tag structure (default: enabled)')
+@click.option('--download-images', is_flag=True, default=True, help='Download preview images for each model (default: enabled)')
+@click.option('--download-metadata', is_flag=True, default=True, help='Create metadata files for each model (default: enabled)')
+def bulk_download_command(input_file, output_dir, batch_size, priority, verify_hashes, scan_security, job_name, base_model, organize_folders, download_images, download_metadata):
     """Bulk download models from a file containing model IDs or search results."""
     
     async def run_bulk_download():
         try:
             # Set default output directory if not specified
+            nonlocal output_dir
             if not output_dir:
                 from ..core.config.env_loader import get_env_var
                 output_dir = get_env_var('CIVITAI_DOWNLOAD_DIR', './downloads')

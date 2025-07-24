@@ -524,14 +524,14 @@ class AdvancedSearchParams:
         if self.username:
             params['username'] = self.username
         if self.model_types:
-            # CRITICAL FIX: Use types parameter (not modelType) per pre-investigation findings
-            params['types'] = ','.join(self.model_types) if isinstance(self.model_types, list) else self.model_types
+            # CivitAI API expects types as array
+            params['types'] = self.model_types if isinstance(self.model_types, list) else [self.model_types]
         
-        # Pagination - PHASE A-4: Use cursor presence instead of query presence
+        # Pagination - FIXED: Cannot use page with query parameter
         params['limit'] = min(self.limit, 200)  # Enforce API limit
         if self.cursor:
             params['cursor'] = self.cursor
-        else:
+        elif not self.query:  # Only use page if no query parameter
             params['page'] = self.page
         
         # Date range
@@ -580,10 +580,9 @@ class AdvancedSearchParams:
                 params['allowCommercialUse'] = [self.commercial_filter.value]
             # Note: For ALL, we don't add the parameter to include all commercial use levels
         
-        # Tags - FIXED: Proper tags parameter handling per pre-investigation
+        # Tags - CivitAI API expects tags as array
         if self.tags:
-            # Use 'tags' parameter with comma-separated format for explicit tag filtering
-            params['tags'] = ','.join(self.tags) if isinstance(self.tags, list) else self.tags
+            params['tags'] = self.tags if isinstance(self.tags, list) else [self.tags]
         
         # Categories - FIXED: Proper category parameter handling per pre-investigation  
         if self.categories:
@@ -593,7 +592,7 @@ class AdvancedSearchParams:
         
         # Base model
         if self.base_model:
-            params['baseModels'] = self.base_model
+            params['baseModels'] = [self.base_model]
         
         # Sorting - Phase A-3: Support advanced sortBy parameter
         if self.sort_by_field:

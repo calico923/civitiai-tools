@@ -14,6 +14,8 @@ import json
 import threading
 from datetime import datetime
 import time
+import httpx
+import re
 
 try:
     from ...core.download.manager import DownloadManager, DownloadTask, FileInfo, DownloadPriority, DownloadStatus
@@ -789,3 +791,172 @@ if __name__ == "__main__":
     print(f"Statistics: {stats}")
     
     print("Bulk Download Manager test completed.")
+
+
+def determine_folder_structure(model_data: Dict[str, Any]) -> str:
+    """
+    Determine folder structure based on model type, base model, and tags.
+    Format: {Type}/{BaseModel}/{FirstTag}/
+    
+    Args:
+        model_data: Model data from API
+        
+    Returns:
+        Relative folder path
+    """
+    # Get model type
+    model_type = model_data.get('type', 'Unknown')
+    
+    # Get base model from first version
+    base_model = 'Unknown'
+    model_versions = model_data.get('modelVersions', [])
+    if model_versions and len(model_versions) > 0:
+        base_model = model_versions[0].get('baseModel', 'Unknown')
+    
+    # Get first tag
+    tags = model_data.get('tags', [])
+    first_tag = tags[0] if tags else 'uncategorized'
+    
+    # Sanitize folder names
+    def sanitize_name(name: str) -> str:
+        # Remove invalid characters for folder names
+        return re.sub(r'[<>:"/\\|?*]', '_', str(name))
+    
+    model_type = sanitize_name(model_type)
+    base_model = sanitize_name(base_model)
+    first_tag = sanitize_name(first_tag)
+    
+    return f"{model_type}/{base_model}/{first_tag}"
+
+
+def generate_model_folder_name(model_data: Dict[str, Any]) -> str:
+    """
+    Generate a descriptive folder name for individual model.
+    Format: [ID{model_id}] {model_name}
+    
+    Args:
+        model_data: Model data from API
+        
+    Returns:
+        Sanitized folder name
+    """
+    model_id = model_data.get('id', 'unknown')
+    model_name = model_data.get('name', 'Unknown Model')
+    
+    # Sanitize model name
+    def sanitize_name(name: str) -> str:
+        # Remove invalid characters and limit length
+        sanitized = re.sub(r'[<>:"/\\|?*]', '_', str(name))
+        # Limit length to avoid filesystem issues
+        if len(sanitized) > 100:
+            sanitized = sanitized[:97] + "..."
+        return sanitized
+    
+    model_name = sanitize_name(model_name)
+    return f"[ID{model_id}] {model_name}"
+
+
+async def download_preview_image(model_data: Dict[str, Any], target_dir: Path) -> Optional[str]:
+    """
+    Download the first preview image for a model.
+    
+    Args:
+        model_data: Model data from API
+        target_dir: Target directory for image
+        
+    Returns:
+        Path to downloaded image or None
+    """
+    try:
+        # Get first image from first version
+        model_versions = model_data.get('modelVersions', [])
+        if not model_versions:
+            return None
+            
+        images = model_versions[0].get('images', [])
+        if not images:
+            return None
+            
+        first_image = images[0]
+        image_url = first_image.get('url')
+        if not image_url:
+            return None
+        
+        # Determine file extension from URL
+        extension = '.jpeg'  # Default
+        if '.png' in image_url.lower():
+            extension = '.png'
+        elif '.jpg' in image_url.lower():
+            extension = '.jpg'
+            
+        # Create target path
+        image_path = target_dir / f"preview{extension}"
+        
+        # Download image
+        async with httpx.AsyncClient() as client:
+            response = await client.get(image_url)
+            response.raise_for_status()
+            
+            # Save image
+            with open(image_path, 'wb') as f:
+                f.write(response.content)
+                
+        return str(image_path)
+        
+    except Exception as e:
+        print(f"Warning: Could not download preview image: {e}")
+        return None
+
+
+def create_metadata_files(model_data: Dict[str, Any], target_dir: Path) -> None:
+    """
+    Create metadata files for a model.
+    
+    Args:
+        model_data: Model data from API
+        target_dir: Target directory for metadata files
+    """
+    try:
+        # Create model_info.json
+        info_file = target_dir / "model_info.json"
+        with open(info_file, 'w', encoding='utf-8') as f:
+            json.dump(model_data, f, indent=2, ensure_ascii=False)
+        
+        # Create prompts.txt if images have metadata
+        prompts = []
+        model_versions = model_data.get('modelVersions', [])
+        
+        for version in model_versions:
+            images = version.get('images', [])
+            for image in images:
+                if image.get('hasMeta', False) and image.get('hasPositivePrompt', False):
+                    # Note: Full prompt metadata would need additional API call
+                    # For now, we'll note that prompts are available
+                    prompts.append(f"Image {image.get('id', 'unknown')}: Has prompt metadata available")
+        
+        if prompts:
+            prompts_file = target_dir / "prompts.txt"
+            with open(prompts_file, 'w', encoding='utf-8') as f:
+                f.write("# Prompt Information\n")
+                f.write("# This model has images with prompt metadata\n\n")
+                for prompt in prompts:
+                    f.write(f"{prompt}\n")
+        
+        # Create basic info file
+        readme_file = target_dir / "README.txt"
+        with open(readme_file, 'w', encoding='utf-8') as f:
+            f.write(f"Model: {model_data.get('name', 'Unknown')}\n")
+            f.write(f"Type: {model_data.get('type', 'Unknown')}\n")
+            f.write(f"Creator: {model_data.get('creator', {}).get('username', 'Unknown')}\n")
+            f.write(f"Tags: {', '.join(model_data.get('tags', []))}\n")
+            f.write(f"CivitAI URL: https://civitai.com/models/{model_data.get('id', '')}\n")
+            
+            description = model_data.get('description', '')
+            if description:
+                # Remove HTML tags for plain text
+                import re
+                description = re.sub(r'<[^>]+>', '', description)
+                f.write(f"\nDescription:\n{description}\n")
+                
+    except Exception as e:
+        print(f"Warning: Could not create metadata files: {e}")
