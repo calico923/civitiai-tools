@@ -40,6 +40,13 @@ class BulkStatus(Enum):
     PAUSED = "paused"
 
 
+class BulkPriority(Enum):
+    """Bulk download priority levels."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 class BatchStrategy(Enum):
     """Batch processing strategies."""
     SEQUENTIAL = "sequential"      # Process batches one by one
@@ -192,26 +199,54 @@ class BulkDownloadManager:
         """
         # Support both parameter formats for integration test compatibility
         if items is not None:
-            # Convert items to search_results format
+            # Convert items to search_results format by fetching actual model data
             search_results = []
             for item in items:
-                # Create a mock SearchResult-like object from item dict
-                mock_result = {
-                    'id': item.get('id', 'unknown'),
-                    'name': item.get('filename', 'Unknown Model'),
-                    'type': 'Model',
-                    'modelVersions': [{
-                        'id': f"version_{item.get('id', 'unknown')}",
-                        'files': [{
-                            'id': item.get('id', 'unknown'),
-                            'name': item.get('filename', 'unknown.file'),
-                            'downloadUrl': item.get('url', ''),
-                            'sizeKB': item.get('size', 0) // 1024,  # Convert bytes to KB
-                            'metadata': {'format': 'Unknown'}
+                try:
+                    # Get model ID
+                    model_id = item.get('id', 'unknown')
+                    if model_id == 'unknown':
+                        continue
+                    
+                    # Import API client here to avoid circular imports
+                    from ...api.client import CivitaiAPIClient
+                    from ...core.config.env_loader import get_civitai_api_key
+                    api_client = CivitaiAPIClient(api_key=get_civitai_api_key())
+                    
+                    # Fetch actual model data from API
+                    model_data = await api_client.get_model_by_id(int(model_id))
+                    
+                    # If specific version_id is provided, filter to that version
+                    version_id = item.get('version_id')
+                    if version_id:
+                        # Filter to specific version
+                        filtered_versions = []
+                        for version in model_data.get('modelVersions', []):
+                            if version.get('id') == int(version_id):
+                                filtered_versions.append(version)
+                        model_data['modelVersions'] = filtered_versions
+                    
+                    search_results.append(model_data)
+                    
+                    await api_client.close()
+                    
+                except Exception as e:
+                    print(f"Warning: Could not fetch model {model_id}: {e}")
+                    # Create a minimal mock result as fallback
+                    version_id = item.get('version_id', f"version_{item.get('id', 'unknown')}")
+                    version_name = item.get('version_name', 'Latest Version')
+                    
+                    mock_result = {
+                        'id': item.get('id', 'unknown'),
+                        'name': item.get('name', item.get('filename', 'Unknown Model')),
+                        'type': 'Model',
+                        'modelVersions': [{
+                            'id': version_id,
+                            'name': version_name,
+                            'files': []  # Empty files array as fallback
                         }]
-                    }]
-                }
-                search_results.append(mock_result)
+                    }
+                    search_results.append(mock_result)
         
         if not search_results:
             raise ValueError("Either search_results or items must be provided")
@@ -221,7 +256,12 @@ class BulkDownloadManager:
         total_files = 0
         total_size = 0
         for result in search_results:
-            if hasattr(result, 'model_versions'):
+            if isinstance(result, dict) and 'modelVersions' in result:
+                for version in result['modelVersions']:
+                    if isinstance(version, dict) and 'files' in version:
+                        total_files += len(version['files'])
+                        total_size += sum(f.get('sizeKB', 0) * 1024 for f in version['files'])
+            elif hasattr(result, 'model_versions'):
                 for version in result.model_versions:
                     if hasattr(version, 'files'):
                         total_files += len(version.files)
@@ -268,6 +308,7 @@ class BulkDownloadManager:
         
         # For integration test compatibility, simulate processing
         # In real implementation, this would manage the download process
+        print(f"Processing job {job_id} with {len(job.search_results)} search results")
         try:
             # Simulate processing files and track download tasks
             task_counter = 0
@@ -284,19 +325,24 @@ class BulkDownloadManager:
                         if job.status == BulkStatus.PAUSED:
                             return job
                         
-                        # Simulate download (using the mocked download_manager)
+                        # Download file with output directory from job options
+                        output_dir = job.options.get('output_dir', None)
                         download_result = await self.download_manager.download_file(
                             url=file_info.get('downloadUrl', ''),
-                            filename=file_info.get('name', 'unknown.file')
+                            filename=file_info.get('name', 'unknown.file'),
+                            output_dir=output_dir
                         )
                         
                         if download_result.success:
                             job.downloaded_files += 1
+                            print(f"✓ Downloaded: {file_info.get('name', 'unknown')}")
                         else:
                             job.failed_files += 1
+                            error_msg = getattr(download_result, 'error_message', 'Download failed')
+                            print(f"✗ Failed: {file_info.get('name', 'unknown')} - {error_msg}")
                             job.errors.append({
                                 'file': file_info.get('name', 'unknown'),
-                                'error': 'Download failed'
+                                'error': error_msg
                             })
             
             # Mark job as completed (only if not paused)
@@ -564,6 +610,27 @@ class BulkDownloadManager:
     async def get_job_status(self, job_id: str) -> Optional[BulkDownloadJob]:
         """Get status of a bulk download job - integration test compatibility."""
         return self.jobs.get(job_id)
+    
+    def get_job_info(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Get job information in dictionary format."""
+        job = self.jobs.get(job_id)
+        if not job:
+            return None
+        
+        return {
+            'job_id': job.job_id,
+            'name': job.name,
+            'status': job.status.value,
+            'downloads': {
+                'total': job.total_files,
+                'completed': job.downloaded_files,
+                'failed': job.failed_files,
+                'skipped': job.skipped_files
+            },
+            'created_at': job.created_at,
+            'started_at': job.started_at,
+            'completed_at': job.completed_at
+        }
     
     def get_all_jobs(self) -> List[BulkDownloadJob]:
         """Get all bulk download jobs."""

@@ -7,6 +7,7 @@ Provides concurrent downloads with resume capability, progress tracking, and int
 import os
 import asyncio
 import aiohttp
+import httpx
 import hashlib
 import time
 from pathlib import Path
@@ -541,13 +542,14 @@ class DownloadManager:
         """Get download statistics."""
         return self.stats.copy()
     
-    async def download_file(self, url: str, filename: str = None, **kwargs) -> 'DownloadResult':
+    async def download_file(self, url: str, filename: str = None, output_dir: str = None, **kwargs) -> 'DownloadResult':
         """
         Download a file from URL - simplified interface for integration tests.
         
         Args:
             url: Download URL
             filename: Output filename (optional)
+            output_dir: Output directory (optional)
             **kwargs: Additional arguments (for compatibility)
             
         Returns:
@@ -564,20 +566,44 @@ class DownloadManager:
         
         try:
             # Simple download implementation for integration test compatibility
-            output_path = self.default_output_dir
+            base_dir = Path(output_dir) if output_dir else self.default_output_dir
             if filename:
-                output_path = output_path / filename
+                output_path = base_dir / filename
             else:
                 # Extract filename from URL
                 filename = url.split('/')[-1] or "downloaded_file"
-                output_path = output_path / filename
+                output_path = base_dir / filename
             
             # Ensure output directory exists
             output_path.parent.mkdir(parents=True, exist_ok=True)
             
-            # For integration tests, simulate successful download
-            # In real implementation, this would use aiohttp to download
-            return DownloadResult(success=True, file_path=output_path)
+            # Perform actual HTTP download
+            try:
+                # Add API key to download URL if it's a CivitAI download endpoint
+                download_url = url
+                if 'civitai.com/api/download' in url:
+                    from ..config.env_loader import get_civitai_api_key
+                    api_key = get_civitai_api_key()
+                    if api_key:
+                        separator = '&' if '?' in url else '?'
+                        download_url = f"{url}{separator}token={api_key}"
+                
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.get(download_url, follow_redirects=True)
+                    response.raise_for_status()
+                    
+                    # Write content to file
+                    with open(output_path, 'wb') as f:
+                        f.write(response.content)
+                    
+                    return DownloadResult(success=True, file_path=output_path)
+                    
+            except httpx.RequestError as e:
+                return DownloadResult(success=False, error_message=f"Network error: {str(e)}")
+            except httpx.HTTPStatusError as e:
+                return DownloadResult(success=False, error_message=f"HTTP error {e.response.status_code}: {e.response.text}")
+            except OSError as e:
+                return DownloadResult(success=False, error_message=f"File write error: {str(e)}")
             
         except Exception as e:
             return DownloadResult(success=False, error_message=str(e))

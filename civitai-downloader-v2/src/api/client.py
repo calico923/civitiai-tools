@@ -274,6 +274,90 @@ class CivitaiAPIClient:
         # CivitAI API returns: {"items": [...], "metadata": {...}}
         return api_response.get("items", [])
     
+    async def get_model_by_id(self, model_id: int) -> Dict[str, Any]:
+        """
+        Get a specific model by ID.
+        
+        Args:
+            model_id: Model ID
+            
+        Returns:
+            Model data
+        """
+        # Check cache first
+        cache_key = self.cache.generate_cache_key("model", {"id": model_id})
+        cached_result = self.cache.get(cache_key)
+        
+        if cached_result is not None:
+            return cached_result
+        
+        # Apply rate limiting
+        await self.rate_limiter.wait()
+        
+        url = f"{self.base_url}/models/{model_id}"
+        
+        try:
+            response = await self._http_client.get(url)
+            
+            if response.status_code == 404:
+                raise Exception(f"Model {model_id} not found")
+            elif response.status_code >= 400:
+                raise Exception(f"API error {response.status_code}: {response.text}")
+            
+            result = response.json()
+            
+            # Cache successful response
+            self.cache.store(cache_key, result)
+            
+            return result
+            
+        except httpx.TimeoutException:
+            raise Exception("Request timeout")
+        except httpx.ConnectError:
+            raise Exception("Connection failed")
+    
+    async def get_model_version_by_id(self, version_id: int) -> Dict[str, Any]:
+        """
+        Get a specific model version by ID.
+        
+        Args:
+            version_id: Version ID
+            
+        Returns:
+            Version data
+        """
+        # Check cache first
+        cache_key = self.cache.generate_cache_key("version", {"id": version_id})
+        cached_result = self.cache.get(cache_key)
+        
+        if cached_result is not None:
+            return cached_result
+        
+        # Apply rate limiting
+        await self.rate_limiter.wait()
+        
+        url = f"{self.base_url}/model-versions/{version_id}"
+        
+        try:
+            response = await self._http_client.get(url)
+            
+            if response.status_code == 404:
+                raise Exception(f"Version {version_id} not found")
+            elif response.status_code >= 400:
+                raise Exception(f"API error {response.status_code}: {response.text}")
+            
+            result = response.json()
+            
+            # Cache successful response
+            self.cache.store(cache_key, result)
+            
+            return result
+            
+        except httpx.TimeoutException:
+            raise Exception("Request timeout")
+        except httpx.ConnectError:
+            raise Exception("Connection failed")
+    
     def detect_unofficial_features(self) -> Dict[str, bool]:
         """
         Detect unofficial API features per design.md.
