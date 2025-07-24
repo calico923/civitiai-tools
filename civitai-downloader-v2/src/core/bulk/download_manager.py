@@ -22,6 +22,7 @@ try:
     from ...core.search.strategy import SearchResult
     from ...core.security.scanner import SecurityScanner, ScanResult
     from ...core.config.system_config import SystemConfig
+    from ...data.database import DatabaseManager
 except ImportError:
     import sys
     from pathlib import Path
@@ -30,6 +31,7 @@ except ImportError:
     from core.search.strategy import SearchResult
     from core.security.scanner import SecurityScanner, ScanResult
     from core.config.system_config import SystemConfig
+    from data.database import DatabaseManager
 
 
 class BulkStatus(Enum):
@@ -134,7 +136,8 @@ class BulkDownloadManager:
     def __init__(self, 
                  download_manager: Optional[DownloadManager] = None,
                  security_scanner: Optional[SecurityScanner] = None,
-                 config: Optional[SystemConfig] = None):
+                 config: Optional[SystemConfig] = None,
+                 database_manager: Optional[DatabaseManager] = None):
         """
         Initialize bulk download manager.
         
@@ -142,10 +145,12 @@ class BulkDownloadManager:
             download_manager: Download manager instance
             security_scanner: Security scanner instance
             config: System configuration
+            database_manager: Database manager instance
         """
         self.config = config or SystemConfig()
         self.download_manager = download_manager or DownloadManager(config=self.config)
         self.security_scanner = security_scanner or SecurityScanner(config=self.config)
+        self.database_manager = database_manager or DatabaseManager()
         
         # Bulk download configuration
         self.batch_config = BatchConfig(
@@ -181,6 +186,24 @@ class BulkDownloadManager:
         self._lock = threading.Lock()
         self._running = False
         self._processor_task = None
+        
+        # Initialize database
+        self._init_database()
+    
+    def _init_database(self) -> None:
+        """Initialize database for download history tracking."""
+        try:
+            # Initialize database in synchronous context
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                # If we're in an async context, schedule the initialization
+                loop.create_task(self.database_manager.initialize())
+            except RuntimeError:
+                # Not in an async context, initialize synchronously
+                self.database_manager._init_database()
+        except Exception as e:
+            print(f"Warning: Could not initialize database: {e}")
     
     async def create_bulk_job(self, 
                        search_results: Optional[List[SearchResult]] = None,
@@ -350,9 +373,19 @@ class BulkDownloadManager:
                     except Exception as e:
                         print(f"Warning: Could not create metadata files: {e}")
                 
+                # Store model metadata in database
+                try:
+                    self.database_manager.store_model(search_result)
+                except Exception as e:
+                    print(f"Warning: Could not store model metadata: {e}")
+                
                 # Process each model version and file
                 for version in search_result.get('modelVersions', []):
                     for file_info in version.get('files', []):
+                        model_id = search_result.get('id')
+                        file_id = file_info.get('id')
+                        file_name = file_info.get('name', 'unknown.file')
+                        
                         # Create a mock task ID for pause/resume compatibility
                         task_id = f"task_{job_id}_{task_counter}"
                         task_counter += 1
@@ -362,22 +395,47 @@ class BulkDownloadManager:
                         if job.status == BulkStatus.PAUSED:
                             return job
                         
+                        # Check for duplicate download if skip_existing is enabled
+                        skip_existing = job.options.get('skip_existing', True)
+                        if skip_existing and self.database_manager.is_downloaded(model_id, file_id):
+                            job.skipped_files += 1
+                            print(f"⏭ Skipped (already downloaded): {file_name}")
+                            continue
+                        
                         # Download file to organized directory structure
                         download_result = await self.download_manager.download_file(
                             url=file_info.get('downloadUrl', ''),
-                            filename=file_info.get('name', 'unknown.file'),
+                            filename=file_name,
                             output_dir=str(full_model_dir)
                         )
                         
                         if download_result.success:
                             job.downloaded_files += 1
-                            print(f"✓ Downloaded: {file_info.get('name', 'unknown')}")
+                            print(f"✓ Downloaded: {file_name}")
+                            
+                            # Record successful download in database
+                            download_data = {
+                                'model_id': model_id,
+                                'file_id': file_id,
+                                'file_name': file_name,
+                                'file_path': str(full_model_dir / file_name),
+                                'download_url': file_info.get('downloadUrl', ''),
+                                'file_size': file_info.get('sizeKB', 0) * 1024,
+                                'hash_sha256': file_info.get('hashes', {}).get('SHA256', ''),
+                                'status': 'completed',
+                                'downloaded_at': datetime.now().isoformat()
+                            }
+                            
+                            try:
+                                self.database_manager.record_download(download_data)
+                            except Exception as e:
+                                print(f"Warning: Could not record download: {e}")
                         else:
                             job.failed_files += 1
                             error_msg = getattr(download_result, 'error_message', 'Download failed')
-                            print(f"✗ Failed: {file_info.get('name', 'unknown')} - {error_msg}")
+                            print(f"✗ Failed: {file_name} - {error_msg}")
                             job.errors.append({
-                                'file': file_info.get('name', 'unknown'),
+                                'file': file_name,
                                 'error': error_msg
                             })
             

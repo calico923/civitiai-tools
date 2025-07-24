@@ -1182,7 +1182,9 @@ def scan_command(file_path, detailed):
 @click.option('--organize-folders', is_flag=True, default=True, help='Organize files by Type/BaseModel/Tag structure (default: enabled)')
 @click.option('--download-images', is_flag=True, default=True, help='Download preview images for each model (default: enabled)')
 @click.option('--download-metadata', is_flag=True, default=True, help='Create metadata files for each model (default: enabled)')
-def bulk_download_command(input_file, output_dir, batch_size, priority, verify_hashes, scan_security, job_name, base_model, organize_folders, download_images, download_metadata):
+@click.option('--skip-existing', is_flag=True, default=True, help='Skip files that are already downloaded (default: enabled)')
+@click.option('--force-redownload', is_flag=True, default=False, help='Force redownload even if file exists (overrides --skip-existing)')
+def bulk_download_command(input_file, output_dir, batch_size, priority, verify_hashes, scan_security, job_name, base_model, organize_folders, download_images, download_metadata, skip_existing, force_redownload):
     """Bulk download models from a file containing model IDs or search results."""
     
     async def run_bulk_download():
@@ -1320,12 +1322,17 @@ def bulk_download_command(input_file, output_dir, batch_size, priority, verify_h
             else:
                 click.echo(f"Found {len(models_to_download)} models to download")
             
-            # Initialize bulk download manager
+            # Initialize bulk download manager with database support
             from ..core.bulk.download_manager import BulkDownloadManager, BulkPriority
+            from ..data.database import DatabaseManager
+            
+            database_manager = DatabaseManager()
+            await database_manager.initialize()
             
             bulk_manager = BulkDownloadManager(
                 download_manager=cli_context.download_manager,
-                security_scanner=cli_context.security_scanner if scan_security else None
+                security_scanner=cli_context.security_scanner if scan_security else None,
+                database_manager=database_manager
             )
             
             # Create bulk job
@@ -1336,7 +1343,9 @@ def bulk_download_command(input_file, output_dir, batch_size, priority, verify_h
                 'output_dir': output_dir or 'downloads/',
                 'organize_folders': organize_folders,
                 'download_images': download_images,
-                'download_metadata': download_metadata
+                'download_metadata': download_metadata,
+                'skip_existing': skip_existing and not force_redownload,
+                'force_redownload': force_redownload
             }
             
             job_id = await bulk_manager.create_bulk_job(
@@ -1391,6 +1400,54 @@ def bulk_download_command(input_file, output_dir, batch_size, priority, verify_h
             raise
     
     run_async(run_bulk_download())
+
+
+@main.command('history')
+@click.option('--limit', default=20, help='Number of recent downloads to show')
+@click.option('--format', 'output_format', 
+              type=click.Choice(['table', 'json']), 
+              default='table', 
+              help='Output format for history')
+def download_history_command(limit, output_format):
+    """Show download history from database."""
+    
+    async def show_history():
+        try:
+            from ..data.database import DatabaseManager
+            
+            database_manager = DatabaseManager()
+            await database_manager.initialize()
+            
+            history = database_manager.get_download_history(limit)
+            
+            if not history:
+                click.echo("No download history found.")
+                return
+            
+            if output_format == 'json':
+                import json
+                click.echo(json.dumps(history, indent=2))
+            else:
+                # Table format
+                click.echo(f"\n📚 Download History (Last {len(history)} entries)\n")
+                click.echo("ID".ljust(6) + "Model ID".ljust(10) + "File Name".ljust(30) + "Downloaded".ljust(20) + "Status")
+                click.echo("-" * 80)
+                
+                for record in history:
+                    download_id = str(record.get('id', 'N/A')).ljust(6)
+                    model_id = str(record.get('model_id', 'N/A')).ljust(10)
+                    file_name = str(record.get('file_name', 'N/A'))[:28].ljust(30)
+                    downloaded_at = str(record.get('downloaded_at', 'N/A'))[:18].ljust(20)
+                    status = record.get('status', 'N/A')
+                    
+                    click.echo(f"{download_id}{model_id}{file_name}{downloaded_at}{status}")
+                
+                click.echo(f"\nTotal records: {len(history)}")
+                
+        except Exception as e:
+            click.echo(f"Error retrieving download history: {e}")
+    
+    run_async(show_history())
 
 
 @cli.command('bulk-status')
