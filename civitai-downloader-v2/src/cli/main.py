@@ -18,6 +18,7 @@ from datetime import datetime, timezone, timedelta
 # Import core components
 from ..core.search.advanced_search import AdvancedSearchParams, SortOption, NSFWFilter, NSFWLevel, SortByField, SortDirection, FlexibleDateRange, DateFilterType, RatingFilter
 from ..core.download.manager import DownloadManager
+from ..utils.html_cleaner import HTMLCleaner
 from ..core.config.manager import ConfigManager
 from ..core.security.scanner import SecurityScanner
 from ..data.database import DatabaseManager
@@ -453,25 +454,28 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                     if filtered_page_items and (csv_exporter or json_exporter):
                         for item in filtered_page_items:
                             try:
+                                # Clean HTML from description fields for output
+                                clean_item = HTMLCleaner.clean_model_description(item.copy()) if isinstance(item, dict) else item
+                                
                                 if csv_exporter:
-                                    csv_exporter.write_row(item)
+                                    csv_exporter.write_row(clean_item)
                                 elif json_exporter:
                                     if output_format == 'bulk-json':
                                         # Format for bulk download compatibility
                                         bulk_item = {
-                                            "id": item.get("id"),
-                                            "name": item.get("name"),
-                                            "type": item.get("type"),
-                                            "description": item.get("description"),
-                                            "allowCommercialUse": item.get("allowCommercialUse"),
-                                            "allowDerivatives": item.get("allowDerivatives"),
-                                            "allowNoCredit": item.get("allowNoCredit"),
-                                            "allowDifferentLicense": item.get("allowDifferentLicense"),
-                                            "nsfw": item.get("nsfw"),
-                                            "tags": item.get("tags"),
-                                            "stats": item.get("stats"),
-                                            "creator": item.get("creator"),
-                                            "modelVersions": item.get("modelVersions")
+                                            "id": clean_item.get("id"),
+                                            "name": clean_item.get("name"),
+                                            "type": clean_item.get("type"),
+                                            "description": clean_item.get("description"),
+                                            "allowCommercialUse": clean_item.get("allowCommercialUse"),
+                                            "allowDerivatives": clean_item.get("allowDerivatives"),
+                                            "allowNoCredit": clean_item.get("allowNoCredit"),
+                                            "allowDifferentLicense": clean_item.get("allowDifferentLicense"),
+                                            "nsfw": clean_item.get("nsfw"),
+                                            "tags": clean_item.get("tags"),
+                                            "stats": clean_item.get("stats"),
+                                            "creator": clean_item.get("creator"),
+                                            "modelVersions": clean_item.get("modelVersions")
                                         }
                                         # Add base model filtering info if used
                                         if base_model:
@@ -484,7 +488,7 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                                                     break
                                         json_exporter.write_item(bulk_item)
                                     else:
-                                        json_exporter.write_item(item)
+                                        json_exporter.write_item(clean_item)
                             except Exception as e:
                                 logger.warning(f"Failed to stream write item {item.get('id', 'N/A')}: {e}")
                     
@@ -512,29 +516,32 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                     if items_taken and (csv_exporter or json_exporter):
                         for item in items_taken:
                             try:
+                                # Clean HTML from description fields for output
+                                clean_item = HTMLCleaner.clean_model_description(item.copy()) if isinstance(item, dict) else item
+                                
                                 if csv_exporter:
-                                    csv_exporter.write_row(item)
+                                    csv_exporter.write_row(clean_item)
                                 elif json_exporter:
                                     if output_format == 'bulk-json':
                                         # Format for bulk download compatibility (same as above)
                                         bulk_item = {
-                                            "id": item.get("id"),
-                                            "name": item.get("name"),
-                                            "type": item.get("type"),
-                                            "description": item.get("description"),
-                                            "allowCommercialUse": item.get("allowCommercialUse"),
-                                            "allowDerivatives": item.get("allowDerivatives"),
-                                            "allowNoCredit": item.get("allowNoCredit"),
-                                            "allowDifferentLicense": item.get("allowDifferentLicense"),
-                                            "nsfw": item.get("nsfw"),
-                                            "tags": item.get("tags"),
-                                            "stats": item.get("stats"),
-                                            "creator": item.get("creator"),
-                                            "modelVersions": item.get("modelVersions")
+                                            "id": clean_item.get("id"),
+                                            "name": clean_item.get("name"),
+                                            "type": clean_item.get("type"),
+                                            "description": clean_item.get("description"),
+                                            "allowCommercialUse": clean_item.get("allowCommercialUse"),
+                                            "allowDerivatives": clean_item.get("allowDerivatives"),
+                                            "allowNoCredit": clean_item.get("allowNoCredit"),
+                                            "allowDifferentLicense": clean_item.get("allowDifferentLicense"),
+                                            "nsfw": clean_item.get("nsfw"),
+                                            "tags": clean_item.get("tags"),
+                                            "stats": clean_item.get("stats"),
+                                            "creator": clean_item.get("creator"),
+                                            "modelVersions": clean_item.get("modelVersions")
                                         }
                                         json_exporter.write_item(bulk_item)
                                     else:
-                                        json_exporter.write_item(item)
+                                        json_exporter.write_item(clean_item)
                             except Exception as e:
                                 logger.warning(f"Failed to stream write item {item.get('id', 'N/A')}: {e}")
                     
@@ -654,7 +661,7 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                                 click.echo(csv_line)
             else:
                 # Original table format
-                click.echo("ID,Name,Base Model,Type,Tags,Likes,Downloads,Images,Updates,NSFW,Image,Rent,RentCivit,Sell,Model URL,Download URL")
+                click.echo("ID,Name,Base Model,Type,Tags,Trained Words,Likes,Downloads,Images,Updates,NSFW,Image,Rent,RentCivit,Sell,Model URL,Download URL")
             
             for result in results:
                 # Handle dict format from API
@@ -804,7 +811,7 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                     # Save raw data to intermediate file if filtering
                     if category or tags or base_model:
                         with open(intermediate_path, 'w', encoding='utf-8') as raw_f:
-                            raw_f.write("ID,Name,Base Model,Type,Tags,Likes,Downloads,Images,Updates,NSFW,Image,Rent,RentCivit,Sell,Model URL,Download URL\n")
+                            raw_f.write("ID,Name,Base Model,Type,Tags,Trained Words,Likes,Downloads,Images,Updates,NSFW,Image,Rent,RentCivit,Sell,Model URL,Download URL\n")
                             csv_writer_raw = csv.writer(raw_f)
                             for result in results:
                                 result_name = result.get("name", "Unknown")
@@ -847,6 +854,13 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                                 else:
                                     tags_str = "N/A"
                                 
+                                # Get trained words (trigger words for LoRA models)
+                                trained_words_list = result.get("trainedWords", [])
+                                if isinstance(trained_words_list, list) and trained_words_list:
+                                    trained_words_str = ", ".join(trained_words_list)
+                                else:
+                                    trained_words_str = "N/A"
+                                
                                 # Get commercial use permissions (4 types: Image, Rent, RentCivit, Sell)
                                 allow_commercial = result.get("allowCommercialUse", [])
                                 if not isinstance(allow_commercial, list):
@@ -871,7 +885,7 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                                         if version_id:
                                             download_url = f"https://civitai.com/api/download/models/{version_id}"
                                 
-                                csv_writer_raw.writerow([result_id, name, base_model_display, result_type, tags_str, likes, downloads, images, updates_count, nsfw_status, image_allowed, rent_allowed, rent_civit_allowed, sell_allowed, model_url, download_url])
+                                csv_writer_raw.writerow([result_id, name, base_model_display, result_type, tags_str, trained_words_str, likes, downloads, images, updates_count, nsfw_status, image_allowed, rent_allowed, rent_civit_allowed, sell_allowed, model_url, download_url])
                     
                     # Save filtered data to main file
                     if show_versions and base_model:
@@ -879,7 +893,7 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                         f.write("Model ID,Model Name,Version ID,Version Name,Base Model,Type,Downloads,NSFW,Download URL\n")
                     else:
                         # Regular mode
-                        f.write("ID,Name,Base Model,Type,Tags,Likes,Downloads,Images,Updates,NSFW,Image,Rent,RentCivit,Sell,Model URL,Download URL\n")
+                        f.write("ID,Name,Base Model,Type,Tags,Trained Words,Likes,Downloads,Images,Updates,NSFW,Image,Rent,RentCivit,Sell,Model URL,Download URL\n")
                     for result in filtered_results:
                         if show_versions and base_model:
                             # Version display mode - output each matching version
@@ -960,6 +974,13 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                             else:
                                 tags_str = "N/A"
                             
+                            # Get trained words (trigger words for LoRA models)
+                            trained_words_list = result.get("trainedWords", [])
+                            if isinstance(trained_words_list, list) and trained_words_list:
+                                trained_words_str = ", ".join(trained_words_list)
+                            else:
+                                trained_words_str = "N/A"
+                            
                             # Generate URLs for filtered data
                             model_url = f"https://civitai.com/models/{result_id}"
                             
@@ -975,7 +996,7 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                             
                             # CSV format output using proper CSV writer
                             csv_writer = csv.writer(f)
-                            csv_writer.writerow([result_id, name, base_model_display, result_type, tags_str, likes, downloads, images, updates_count, nsfw_status, image_allowed, rent_allowed, rent_civit_allowed, sell_allowed, model_url, download_url])
+                            csv_writer.writerow([result_id, name, base_model_display, result_type, tags_str, trained_words_str, likes, downloads, images, updates_count, nsfw_status, image_allowed, rent_allowed, rent_civit_allowed, sell_allowed, model_url, download_url])
                 else:  # json format (default for file output)
                     # Save raw data to intermediate file if filtering
                     if category or tags or base_model:
@@ -983,9 +1004,17 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                             raw_results_dict = [res.dict() if hasattr(res, 'dict') else res for res in results]
                             json.dump(raw_results_dict, raw_f, indent=2, ensure_ascii=False)
                     
-                    # Save filtered data to main file
+                    # Save filtered data to main file with cleaned descriptions
                     filtered_results_dict = [res.dict() if hasattr(res, 'dict') else res for res in filtered_results]
-                    json.dump(filtered_results_dict, f, indent=2, ensure_ascii=False)
+                    # Clean HTML from description fields
+                    cleaned_results = []
+                    for result in filtered_results_dict:
+                        if isinstance(result, dict):
+                            cleaned_result = HTMLCleaner.clean_model_description(result.copy())
+                            cleaned_results.append(cleaned_result)
+                        else:
+                            cleaned_results.append(result)
+                    json.dump(cleaned_results, f, indent=2, ensure_ascii=False)
             
             click.echo(f"\nResults saved to: {output_path} (format: {output_format})")
             if category or tags:
