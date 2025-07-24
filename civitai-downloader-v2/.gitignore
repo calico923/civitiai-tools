@@ -67,7 +67,7 @@ cache/
 data/*.db
 
 # Data directory (too large)
-data/
+/data/
 
 # Output files
 reports/

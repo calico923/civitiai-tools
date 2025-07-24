@@ -734,8 +734,8 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                 csv_line = output_buffer.getvalue().strip()
                 click.echo(csv_line)
         
-        # Save to file if requested
-        if output:
+        # Save to file if requested (only if not already done via streaming export)
+        if output and not (csv_exporter or json_exporter):
             # Determine output path - if no directory specified, use default download directory
             output_path = Path(output)
             # If path doesn't contain directory separator, put in reports directory
@@ -800,7 +800,7 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                         result_id = result.get("id", "N/A")
                         result_name = result.get("name", "Unknown")
                         f.write(f"{result_id}: {result_name}\n")
-                elif output_format == 'table':
+                elif output_format == 'csv':
                     # Save raw data to intermediate file if filtering
                     if category or tags or base_model:
                         with open(intermediate_path, 'w', encoding='utf-8') as raw_f:
@@ -892,7 +892,7 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                             for version in model_versions:
                                 if isinstance(version, dict):
                                     version_base = version.get("baseModel", "")
-                                    if version_base.lower() == version_base_model.lower():
+                                    if version_base.lower() == base_model.lower():
                                         version_id = version.get("id", "N/A")
                                         version_name = version.get("name", "Unknown")
                                         version_stats = version.get("stats", {})
@@ -978,7 +978,7 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                             csv_writer.writerow([result_id, name, base_model_display, result_type, tags_str, likes, downloads, images, updates_count, nsfw_status, image_allowed, rent_allowed, rent_civit_allowed, sell_allowed, model_url, download_url])
                 else:  # json format (default for file output)
                     # Save raw data to intermediate file if filtering
-                    if category or tags or version_base_model:
+                    if category or tags or base_model:
                         with open(intermediate_path, 'w', encoding='utf-8') as raw_f:
                             raw_results_dict = [res.dict() if hasattr(res, 'dict') else res for res in results]
                             json.dump(raw_results_dict, raw_f, indent=2, ensure_ascii=False)
