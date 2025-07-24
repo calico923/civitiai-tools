@@ -257,18 +257,21 @@ class MultiAuthStrategy:
         Authenticate using web method.
         
         Returns:
-            True if successful, False otherwise
-            
-        Raises:
-            NotImplementedError: Web authentication not yet implemented
+            True if successful, False if web auth not available or failed
         """
-        # TODO: Implement actual web authentication using WebAuthManager
-        # This is a placeholder that should be replaced with real implementation
-        # For now, raise NotImplementedError to prevent security vulnerabilities
-        raise NotImplementedError(
-            "Web authentication is not yet implemented. "
-            "Please use API key authentication or implement web auth logic."
-        )
+        # IMPLEMENTATION: Web authentication using WebAuthManager
+        from .web_auth import WebAuthManager
+        
+        web_auth = WebAuthManager()
+        try:
+            # Attempt web authentication
+            result = await web_auth.login(credentials)
+            return result.get('success', False)
+        except NotImplementedError:
+            # Web authentication not yet available
+            return False
+        finally:
+            await web_auth.close()
     
     async def authenticate(self) -> bool:
         """

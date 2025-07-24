@@ -14,17 +14,6 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from core.analytics.collector import (
-    AnalyticsCollector, EventType, get_analytics_collector
-)
-
-try:
-    from core.analytics.analyzer import AnalyticsAnalyzer
-    ANALYZER_AVAILABLE = True
-except ImportError:
-    ANALYZER_AVAILABLE = False
-
-
 import pytest
 from core.analytics.collector import (
     AnalyticsCollector, EventType, get_analytics_collector

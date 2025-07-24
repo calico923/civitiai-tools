@@ -2,7 +2,6 @@
 import logging
 import logging.handlers
 import threading
-import time
 from pathlib import Path
 from typing import Optional, Dict, Any
 from queue import Queue, Empty

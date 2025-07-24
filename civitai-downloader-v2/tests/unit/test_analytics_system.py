@@ -4,6 +4,7 @@ Tests for Analytics and Reporting system (Requirement 13).
 Implements comprehensive testing for analytics collection, analysis, and reporting.
 """
 
+import asyncio
 import json
 import os
 import sqlite3
@@ -61,7 +62,6 @@ class TestAnalyticsSystemIntegration(unittest.TestCase):
         # Generate analysis report
         end_time = time.time()
         start_time = end_time - 3600
-        import asyncio
         report = asyncio.run(self.analyzer.generate_report(start_time, end_time))
         
         # Verify API statistics tracking
@@ -92,7 +92,6 @@ class TestAnalyticsSystemIntegration(unittest.TestCase):
         # Generate report
         end_time = time.time()
         start_time = end_time - 3600
-        import asyncio
         report = asyncio.run(self.analyzer.generate_report(start_time, end_time))
         
         # Verify cache performance tracking
@@ -122,7 +121,6 @@ class TestAnalyticsSystemIntegration(unittest.TestCase):
         # Generate report
         end_time = time.time()
         start_time = end_time - 3600
-        import asyncio
         report = asyncio.run(self.analyzer.generate_report(start_time, end_time))
         
         # Verify batch processing statistics
@@ -163,7 +161,6 @@ class TestAnalyticsSystemIntegration(unittest.TestCase):
         # Generate report
         end_time = time.time()
         start_time = end_time - 3600
-        import asyncio
         report = asyncio.run(self.analyzer.generate_report(start_time, end_time))
         
         # Verify download statistics
@@ -229,7 +226,6 @@ class TestAnalyticsSystemIntegration(unittest.TestCase):
         config = ReportConfig(format=ReportFormat.MARKDOWN, period=ReportPeriod.MONTHLY)
         end_time = time.time()
         start_time = end_time - (24 * 3600)
-        import asyncio
         report = asyncio.run(self.analyzer.generate_report(start_time, end_time))
         md_report_path = self.reporter.generate_report(report, config)
         
@@ -275,7 +271,6 @@ class TestAnalyticsSystemIntegration(unittest.TestCase):
         # Generate comprehensive report
         end_time = time.time()
         start_time = end_time - 3600
-        import asyncio
         report = asyncio.run(self.analyzer.generate_report(start_time, end_time))
         
         # Verify comprehensive statistics
@@ -344,7 +339,6 @@ class TestAnalyticsSystemIntegration(unittest.TestCase):
         # Verify consistency in analysis
         end_time = time.time()
         start_time = end_time - 3600
-        import asyncio
         report = asyncio.run(self.analyzer.generate_report(start_time, end_time))
         
         # Check each component reflects the data correctly

@@ -417,7 +417,7 @@ class AnalyticsCollector:
         finally:
             conn.close()
     
-    async def get_events(self, event_type: Optional[EventType] = None,
+    def get_events(self, event_type: Optional[EventType] = None,
                   start_time: Optional[float] = None,
                   end_time: Optional[float] = None,
                   limit: Optional[int] = None,
@@ -441,8 +441,8 @@ class AnalyticsCollector:
                 
             # Filter by category if provided (look in data JSON)
             if category:
-                query += " AND data LIKE ?"
-                params.append(f'%"category": "{category}"%')
+                query += " AND json_extract(data, '$.category') = ?"
+                params.append(category)
             
             query += " ORDER BY timestamp DESC"
             
@@ -473,7 +473,7 @@ class AnalyticsCollector:
             
             return events
     
-    async def flush_events(self) -> None:
+    def flush_events(self) -> None:
         """Force flush events to database - integration test compatibility."""
         with self._lock:
             self._flush_events()

@@ -322,50 +322,56 @@ class DatabaseManager:
 
 
 if __name__ == "__main__":
-    # Test database manager
-    print("Testing Database Manager...")
+    import asyncio
     
-    # Create test database
-    test_db = DatabaseManager(Path("./test_db.sqlite"))
+    async def test_database():
+        # Test database manager
+        print("Testing Database Manager...")
+        
+        # Create test database
+        test_db = DatabaseManager(Path("./test_db.sqlite"))
+        await test_db.initialize()
+        
+        # Test model storage
+        test_model = {
+            'id': 12345,
+            'name': 'Test Model',
+            'type': 'Checkpoint',
+            'description': 'A test model',
+            'creator': {'id': 123, 'username': 'testuser'},
+            'nsfw': False,
+            'allowCommercialUse': 'Sell',
+            'createdAt': '2023-01-01T00:00:00Z',
+            'updatedAt': '2023-01-01T00:00:00Z'
+        }
+        
+        success = test_db.store_model(test_model)
+        print(f"Model storage: {'✓' if success else '✗'}")
+        
+        # Test model retrieval
+        retrieved = test_db.get_model(12345)
+        print(f"Model retrieval: {'✓' if retrieved else '✗'}")
+        
+        # Test download recording
+        test_download = {
+            'model_id': 12345,
+            'file_id': 67890,
+            'file_name': 'test_model.safetensors',
+            'file_path': './downloads/test_model.safetensors',
+            'download_url': 'https://example.com/test.safetensors',
+            'file_size': 1024*1024,
+            'hash_sha256': 'dummy_hash',
+            'status': 'completed',
+            'downloaded_at': '2023-01-01T01:00:00Z'
+        }
+        
+        download_success = test_db.record_download(test_download)
+        print(f"Download recording: {'✓' if download_success else '✗'}")
+        
+        # Test duplicate check
+        is_duplicate = test_db.is_downloaded(12345, 67890)
+        print(f"Duplicate detection: {'✓' if is_duplicate else '✗'}")
+        
+        print("Database Manager test completed!")
     
-    # Test model storage
-    test_model = {
-        'id': 12345,
-        'name': 'Test Model',
-        'type': 'Checkpoint',
-        'description': 'A test model',
-        'creator': {'id': 123, 'username': 'testuser'},
-        'nsfw': False,
-        'allowCommercialUse': 'Sell',
-        'createdAt': '2023-01-01T00:00:00Z',
-        'updatedAt': '2023-01-01T00:00:00Z'
-    }
-    
-    success = test_db.store_model(test_model)
-    print(f"Model storage: {'✓' if success else '✗'}")
-    
-    # Test model retrieval
-    retrieved = test_db.get_model(12345)
-    print(f"Model retrieval: {'✓' if retrieved else '✗'}")
-    
-    # Test download recording
-    test_download = {
-        'model_id': 12345,
-        'file_id': 67890,
-        'file_name': 'test_model.safetensors',
-        'file_path': './downloads/test_model.safetensors',
-        'download_url': 'https://example.com/test.safetensors',
-        'file_size': 1024*1024,
-        'hash_sha256': 'dummy_hash',
-        'status': 'completed',
-        'downloaded_at': '2023-01-01T01:00:00Z'
-    }
-    
-    download_success = test_db.record_download(test_download)
-    print(f"Download recording: {'✓' if download_success else '✗'}")
-    
-    # Test duplicate check
-    is_duplicate = test_db.is_downloaded(12345, 67890)
-    print(f"Duplicate detection: {'✓' if is_duplicate else '✗'}")
-    
-    print("Database Manager test completed!")
+    asyncio.run(test_database())

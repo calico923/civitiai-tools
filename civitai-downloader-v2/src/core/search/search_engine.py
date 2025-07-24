@@ -239,7 +239,7 @@ class AdvancedSearchEngine:
             'last_search_time': None
         }
     
-    async def search(self, search_params: AdvancedSearchParams = None, query: str = None, filters: Dict[str, Any] = None) -> SearchResult:
+    async def search(self, search_params: AdvancedSearchParams = None, query: str = None, filters: Dict[str, Any] = None) -> Union[SearchResult, List[Dict[str, Any]]]:
         """
         Perform advanced search with comprehensive filtering.
         
@@ -249,7 +249,7 @@ class AdvancedSearchEngine:
             filters: Search filters dict (integration test compatibility)
             
         Returns:
-            SearchResult with filtered models and metadata
+            SearchResult when using search_params, List[Dict] when using query/filters for integration test compatibility
         """
         # Support both parameter formats for integration test compatibility
         if search_params is None:
@@ -289,6 +289,20 @@ class AdvancedSearchEngine:
             return result.models
         else:
             return result
+    
+    async def search_models_list(self, query: str = None, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """
+        Integration test compatible method that always returns models list.
+        
+        Args:
+            query: Search query string
+            filters: Search filters dict
+            
+        Returns:
+            List of model dictionaries
+        """
+        result = await self.search(query=query, filters=filters)
+        return result  # This will be List[Dict] due to the query/filters path
     
     async def search_streaming(self, search_params: AdvancedSearchParams, 
                              batch_size: int = 50):

@@ -10,6 +10,14 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional, Callable, AsyncGenerator
 from enum import Enum
 import requests
+from concurrent.futures import ThreadPoolExecutor
+
+# Optional import for concurrent processing
+try:
+    import aiohttp
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    AIOHTTP_AVAILABLE = False
 
 try:
     from ...api.auth import AuthManager
@@ -348,26 +356,104 @@ class SearchStrategy:
                 print(f"Error fetching page {page}: {e}")
                 break
     
-    def search_by_ids(self, model_ids: List[int]) -> List[SearchResult]:
+    def search_by_ids(self, model_ids: List[int], max_concurrent: int = 5) -> List[SearchResult]:
         """
-        Search for specific models by IDs.
+        Search for specific models by IDs with concurrent processing.
         
-        PERFORMANCE WARNING: This implementation performs N API calls for N model IDs (N+1 problem).
-        This is due to CivitAI API limitations - no batch endpoint is available for
-        fetching multiple models by ID. 
+        OPTIMIZATION: Uses concurrent requests to minimize the N+1 query problem.
+        While CivitAI API doesn't provide batch endpoints, concurrent requests
+        significantly improve performance over sequential calls.
         
-        **For large numbers of IDs (>10), performance will degrade significantly.**
-        Consider using pagination-based search with filters instead for bulk operations.
+        Performance characteristics:
+        - Sequential: ~0.1s * N requests  
+        - Concurrent: ~(N / max_concurrent) * max_request_time
         
         Args:
-            model_ids: List of model IDs (recommended: <10 IDs for optimal performance)
+            model_ids: List of model IDs
+            max_concurrent: Maximum concurrent requests (default: 5)
             
         Returns:
-            List of search results
-            
-        Raises:
-            Performance degradation for large ID lists due to sequential API calls
+            List of search results (preserves order of input IDs)
         """
+        # Check if aiohttp is available for concurrent processing
+        if not AIOHTTP_AVAILABLE:
+            print("aiohttp not available, falling back to sequential processing")
+            return self._search_by_ids_sequential(model_ids)
+        
+        results = []
+        headers = self.auth_manager.get_auth_headers()
+        
+        async def fetch_model(session, model_id: int) -> Optional[SearchResult]:
+            """Fetch a single model asynchronously."""
+            try:
+                async with session.get(
+                    f'{self.base_url}/models/{model_id}',
+                    headers=headers
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return SearchResult.from_api_response(data)
+                    return None
+            except Exception as e:
+                print(f"Error fetching model {model_id}: {e}")
+                return None
+        
+        async def fetch_all_models():
+            """Fetch all models concurrently."""
+            connector = aiohttp.TCPConnector(limit=max_concurrent)
+            timeout = aiohttp.ClientTimeout(total=30)
+            
+            async with aiohttp.ClientSession(
+                connector=connector, 
+                timeout=timeout
+            ) as session:
+                # Create semaphore to limit concurrent requests
+                semaphore = asyncio.Semaphore(max_concurrent)
+                
+                async def fetch_with_semaphore(model_id: int):
+                    async with semaphore:
+                        result = await fetch_model(session, model_id)
+                        # Rate limiting - small delay between requests
+                        await asyncio.sleep(0.02)  # 50 requests/second max
+                        return (model_id, result)
+                
+                # Execute all requests concurrently
+                tasks = [fetch_with_semaphore(model_id) for model_id in model_ids]
+                responses = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Process results, preserving order
+                result_map = {}
+                for response in responses:
+                    if isinstance(response, tuple) and response[1] is not None:
+                        model_id, result = response
+                        result_map[model_id] = result
+                
+                # Return results in original order
+                return [result_map.get(model_id) for model_id in model_ids if model_id in result_map]
+        
+        # Run async operation
+        try:
+            if hasattr(asyncio, 'get_running_loop'):
+                # We're in an async context
+                try:
+                    loop = asyncio.get_running_loop()
+                    # Use thread pool to avoid blocking the current loop
+                    with ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, fetch_all_models())
+                        results = future.result()
+                except RuntimeError:
+                    results = asyncio.run(fetch_all_models())
+            else:
+                results = asyncio.run(fetch_all_models())
+        except Exception as e:
+            print(f"Concurrent fetch failed, falling back to sequential: {e}")
+            # Fallback to sequential processing
+            return self._search_by_ids_sequential(model_ids)
+        
+        return results
+    
+    def _search_by_ids_sequential(self, model_ids: List[int]) -> List[SearchResult]:
+        """Sequential fallback for search_by_ids."""
         results = []
         headers = self.auth_manager.get_auth_headers()
         

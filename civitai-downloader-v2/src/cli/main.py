@@ -1405,7 +1405,7 @@ def bulk_download_command(input_file, output_dir, batch_size, priority, verify_h
     run_async(run_bulk_download())
 
 
-@main.command('history')
+@cli.command('history')
 @click.option('--limit', default=20, help='Number of recent downloads to show')
 @click.option('--format', 'output_format', 
               type=click.Choice(['table', 'json']), 
@@ -1928,6 +1928,9 @@ def version_command():
     click.echo("Enterprise-grade AI model downloader")
     click.echo("Phase 1-8 Complete Implementation")
 
+
+# Make cli available as main for bulk-download command compatibility
+main = cli
 
 if __name__ == '__main__':
     cli()

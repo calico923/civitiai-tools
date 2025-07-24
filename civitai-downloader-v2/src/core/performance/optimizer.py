@@ -14,8 +14,6 @@ import psutil
 import threading
 from collections import deque
 import statistics
-import json
-import logging
 
 try:
     from ...core.config.system_config import SystemConfig

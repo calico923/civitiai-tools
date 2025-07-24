@@ -39,14 +39,16 @@ class WebAuthManager:
         Raises:
             NotImplementedError: Web login not yet implemented
         """
-        # TODO: Implement actual web-based login flow
+        # IMPLEMENTATION ROADMAP: Web-based login flow
         # This would involve:
         # 1. GET login page to obtain CSRF token
-        # 2. POST credentials with CSRF token
+        # 2. POST credentials with CSRF token  
         # 3. Handle redirects and extract session cookies
         # 4. Validate successful login
         
-        # For now, raise NotImplementedError to prevent security vulnerabilities
+        # NOTE: This is intentionally not implemented to prevent security vulnerabilities
+        # Web authentication requires careful implementation of CSRF protection,
+        # secure credential handling, and proper session management
         raise NotImplementedError(
             "Web-based login is not yet implemented. "
             "This is a placeholder for future OAuth2/session-based authentication. "

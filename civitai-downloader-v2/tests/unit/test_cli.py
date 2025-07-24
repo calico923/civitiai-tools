@@ -23,14 +23,12 @@ try:
     from src.cli.main import cli
     import asyncio
     import click
-    # ... (rest of the imports)
-except ImportError as e:
-    print(f"Failed to import CLI modules: {e}")
-    # ... (fallback mock)
     from src.core.search.advanced_search import AdvancedSearchEngine
     from src.core.download.manager import DownloadManager
     from src.core.config.manager import ConfigManager
-except ImportError:
+except ImportError as e:
+    print(f"Failed to import CLI modules: {e}")
+    raise  # Fail fast instead of continuing with broken imports
     # Create mock CLI structure for testing
     import click
     
