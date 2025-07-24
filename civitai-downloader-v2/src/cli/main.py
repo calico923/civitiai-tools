@@ -1184,7 +1184,10 @@ def scan_command(file_path, detailed):
 @click.option('--download-metadata', is_flag=True, default=True, help='Create metadata files for each model (default: enabled)')
 @click.option('--skip-existing', is_flag=True, default=True, help='Skip files that are already downloaded (default: enabled)')
 @click.option('--force-redownload', is_flag=True, default=False, help='Force redownload even if file exists (overrides --skip-existing)')
-def bulk_download_command(input_file, output_dir, batch_size, priority, verify_hashes, scan_security, job_name, base_model, organize_folders, download_images, download_metadata, skip_existing, force_redownload):
+@click.option('--max-retries', default=3, help='Maximum number of retry attempts for failed requests')
+@click.option('--max-concurrent', default=3, help='Maximum number of concurrent requests to API')
+@click.option('--rate-limit', default=0.5, type=float, help='Requests per second rate limit (default: 0.5)')
+def bulk_download_command(input_file, output_dir, batch_size, priority, verify_hashes, scan_security, job_name, base_model, organize_folders, download_images, download_metadata, skip_existing, force_redownload, max_retries, max_concurrent, rate_limit):
     """Bulk download models from a file containing model IDs or search results."""
     
     async def run_bulk_download():

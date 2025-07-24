@@ -8,6 +8,8 @@ import httpx
 import asyncio
 from typing import Dict, Any, Optional, AsyncIterator, List
 import sys
+import math
+import random
 from pathlib import Path
 
 # Add parent directory to path for imports
@@ -28,7 +30,10 @@ class CivitaiAPIClient:
         base_url: str = "https://civitai.com/api/v1",
         timeout: int = 30,
         requests_per_second: float = 0.5,
-        cache_ttl: int = 300
+        cache_ttl: int = 300,
+        max_retries: int = 3,
+        retry_backoff_factor: float = 2.0,
+        max_concurrent_requests: int = 3
     ):
         """
         Initialize CivitAI API client.
@@ -39,12 +44,21 @@ class CivitaiAPIClient:
             timeout: Request timeout in seconds
             requests_per_second: Rate limit for requests
             cache_ttl: Cache TTL in seconds
+            max_retries: Maximum number of retry attempts
+            retry_backoff_factor: Exponential backoff factor for retries
+            max_concurrent_requests: Maximum concurrent requests
         """
         self.api_key = api_key
         self.base_url = base_url
         self.timeout = timeout
+        self.max_retries = max_retries
+        self.retry_backoff_factor = retry_backoff_factor
+        self.max_concurrent_requests = max_concurrent_requests
         self.rate_limiter = RateLimiter(requests_per_second)
         self.cache = ResponseCache(cache_ttl)
+        
+        # Concurrency control
+        self._semaphore = asyncio.Semaphore(max_concurrent_requests)
         
         # Fallback manager for unofficial API features per design.md
         self.fallback_manager = self._init_fallback_manager()
@@ -73,9 +87,102 @@ class CivitaiAPIClient:
         
         return headers
     
+    async def _make_request_with_retry(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """
+        Make HTTP request with retry logic and enhanced error handling.
+        
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            url: Request URL
+            **kwargs: Additional arguments for httpx request
+            
+        Returns:
+            HTTP response
+            
+        Raises:
+            Exception: After all retry attempts failed
+        """
+        async with self._semaphore:  # Control concurrency
+            last_exception = None
+            
+            for attempt in range(self.max_retries + 1):
+                try:
+                    # Apply rate limiting
+                    await self.rate_limiter.wait()
+                    
+                    # Make request
+                    response = await self._http_client.request(method, url, **kwargs)
+                    
+                    # Handle specific HTTP status codes
+                    if response.status_code == 429:
+                        # Rate limited - record error and calculate backoff
+                        self.rate_limiter.record_rate_limit_error()
+                        
+                        retry_after = response.headers.get('Retry-After')
+                        if retry_after:
+                            # Use server-provided retry-after value
+                            backoff_time = float(retry_after)
+                        else:
+                            # Exponential backoff with jitter
+                            backoff_time = (self.retry_backoff_factor ** attempt) + random.uniform(0, 1)
+                        
+                        if attempt < self.max_retries:
+                            print(f"Rate limited (429). Retrying in {backoff_time:.1f}s... (attempt {attempt + 1}/{self.max_retries})")
+                            await asyncio.sleep(backoff_time)
+                            continue
+                        else:
+                            raise Exception(f"Rate limited (429) after {self.max_retries} retries")
+                    
+                    elif response.status_code >= 500:
+                        # Server error - retry with exponential backoff
+                        self.rate_limiter.record_error()
+                        
+                        if attempt < self.max_retries:
+                            backoff_time = (self.retry_backoff_factor ** attempt) + random.uniform(0, 1)
+                            print(f"Server error ({response.status_code}). Retrying in {backoff_time:.1f}s... (attempt {attempt + 1}/{self.max_retries})")
+                            await asyncio.sleep(backoff_time)
+                            continue
+                        else:
+                            raise Exception(f"Server error ({response.status_code}) after {self.max_retries} retries: {response.text}")
+                    
+                    elif response.status_code == 404:
+                        # Not found - don't retry
+                        raise Exception(f"API endpoint not found: {response.status_code}")
+                    
+                    elif response.status_code >= 400:
+                        # Client error - don't retry
+                        raise Exception(f"API error {response.status_code}: {response.text}")
+                    
+                    # Success - record it
+                    self.rate_limiter.record_success()
+                    return response
+                    
+                except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+                    last_exception = e
+                    self.rate_limiter.record_error()
+                    
+                    if attempt < self.max_retries:
+                        backoff_time = (self.retry_backoff_factor ** attempt) + random.uniform(0, 1)
+                        error_type = type(e).__name__
+                        print(f"Network error ({error_type}). Retrying in {backoff_time:.1f}s... (attempt {attempt + 1}/{self.max_retries})")
+                        await asyncio.sleep(backoff_time)
+                        continue
+                    else:
+                        raise Exception(f"Network error after {self.max_retries} retries: {str(e)}")
+                
+                except Exception as e:
+                    # Other errors - don't retry
+                    raise Exception(f"Request failed: {str(e)}")
+            
+            # Should not reach here, but handle it
+            if last_exception:
+                raise Exception(f"Request failed after all retries: {str(last_exception)}")
+            else:
+                raise Exception("Request failed for unknown reason")
+    
     async def get_models(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Get models from CivitAI API.
+        Get models from CivitAI API with enhanced retry logic.
         
         Args:
             params: Search parameters
@@ -90,43 +197,19 @@ class CivitaiAPIClient:
         if cached_result is not None:
             return cached_result
         
-        # Apply rate limiting
-        await self.rate_limiter.wait()
-        
-        # CRITICAL FIX: Build URL with proper array parameter handling
+        # Build URL with proper array parameter handling
         url = self._build_url_with_array_params(f"{self.base_url}/models", params)
         
-        try:
-            # Use the pre-built URL directly (no params needed)
-            response = await self._http_client.get(url)
-            
-            # Handle HTTP errors
-            if response.status_code == 404:
-                raise Exception(f"API endpoint not found: {response.status_code}")
-            elif response.status_code == 429:
-                retry_after = response.headers.get('Retry-After', '60')
-                raise Exception(f"Rate limited (429): Retry after {retry_after} seconds")
-            elif response.status_code >= 400:
-                raise Exception(f"API error {response.status_code}: {response.text}")
-            
-            # Parse response
-            result = response.json()
-            
-            # Cache successful response
-            self.cache.store(cache_key, result)
-            
-            return result
-            
-        except httpx.TimeoutException:
-            raise Exception("Request timeout")
-        except httpx.ConnectError:
-            raise Exception("Connection failed")
-        except Exception as e:
-            # Re-raise known exceptions
-            if "timeout" in str(e).lower() or "connect" in str(e).lower() or "404" in str(e) or "429" in str(e):
-                raise
-            # Wrap other exceptions
-            raise Exception(f"API request failed: {str(e)}")
+        # Make request with retry logic
+        response = await self._make_request_with_retry("GET", url)
+        
+        # Parse response
+        result = response.json()
+        
+        # Cache successful response
+        self.cache.store(cache_key, result)
+        
+        return result
     
     async def get_models_paginated(self, params: Dict[str, Any]) -> AsyncIterator[Dict[str, Any]]:
         """
@@ -273,7 +356,7 @@ class CivitaiAPIClient:
     
     async def get_model_by_id(self, model_id: int) -> Dict[str, Any]:
         """
-        Get a specific model by ID.
+        Get a specific model by ID with enhanced retry logic.
         
         Args:
             model_id: Model ID
@@ -288,34 +371,21 @@ class CivitaiAPIClient:
         if cached_result is not None:
             return cached_result
         
-        # Apply rate limiting
-        await self.rate_limiter.wait()
-        
         url = f"{self.base_url}/models/{model_id}"
         
-        try:
-            response = await self._http_client.get(url)
-            
-            if response.status_code == 404:
-                raise Exception(f"Model {model_id} not found")
-            elif response.status_code >= 400:
-                raise Exception(f"API error {response.status_code}: {response.text}")
-            
-            result = response.json()
-            
-            # Cache successful response
-            self.cache.store(cache_key, result)
-            
-            return result
-            
-        except httpx.TimeoutException:
-            raise Exception("Request timeout")
-        except httpx.ConnectError:
-            raise Exception("Connection failed")
+        # Make request with retry logic
+        response = await self._make_request_with_retry("GET", url)
+        
+        result = response.json()
+        
+        # Cache successful response
+        self.cache.store(cache_key, result)
+        
+        return result
     
     async def get_model_version_by_id(self, version_id: int) -> Dict[str, Any]:
         """
-        Get a specific model version by ID.
+        Get a specific model version by ID with enhanced retry logic.
         
         Args:
             version_id: Version ID
@@ -330,30 +400,17 @@ class CivitaiAPIClient:
         if cached_result is not None:
             return cached_result
         
-        # Apply rate limiting
-        await self.rate_limiter.wait()
-        
         url = f"{self.base_url}/model-versions/{version_id}"
         
-        try:
-            response = await self._http_client.get(url)
-            
-            if response.status_code == 404:
-                raise Exception(f"Version {version_id} not found")
-            elif response.status_code >= 400:
-                raise Exception(f"API error {response.status_code}: {response.text}")
-            
-            result = response.json()
-            
-            # Cache successful response
-            self.cache.store(cache_key, result)
-            
-            return result
-            
-        except httpx.TimeoutException:
-            raise Exception("Request timeout")
-        except httpx.ConnectError:
-            raise Exception("Connection failed")
+        # Make request with retry logic
+        response = await self._make_request_with_retry("GET", url)
+        
+        result = response.json()
+        
+        # Cache successful response
+        self.cache.store(cache_key, result)
+        
+        return result
     
     def detect_unofficial_features(self) -> Dict[str, bool]:
         """
