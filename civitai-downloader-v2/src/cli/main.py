@@ -22,6 +22,7 @@ from ..core.config.manager import ConfigManager
 from ..core.security.scanner import SecurityScanner
 from ..data.database import DatabaseManager
 from ..api.client import CivitaiAPIClient
+from ..data.export.streaming_exporter import StreamingExporterFactory
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -382,6 +383,25 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
         # Update params for pagination
         params.limit = per_page
         
+        # Initialize streaming exporters if output file is specified
+        csv_exporter = None
+        json_exporter = None
+        
+        if output:
+            output_path = Path(output)
+            try:
+                if output_format == 'csv':
+                    csv_exporter = StreamingExporterFactory.create_exporter(output_path, 'csv')
+                    csv_exporter.open()
+                elif output_format in ['json', 'bulk-json']:
+                    json_exporter = StreamingExporterFactory.create_exporter(output_path, 'json')
+                    json_exporter.open()
+                    
+                logger.info(f"Initialized streaming export to: {output_path}")
+            except Exception as e:
+                click.echo(f"Error initializing export file: {e}", err=True)
+                return
+        
         try:
             async for page_data in cli_context.client.get_models_paginated(params.to_api_params()):
                 page_items = page_data.get("items", [])
@@ -429,6 +449,45 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                         if category_match and tags_match and version_match:
                             filtered_page_items.append(item)
                     
+                    # Stream write filtered items immediately
+                    if filtered_page_items and (csv_exporter or json_exporter):
+                        for item in filtered_page_items:
+                            try:
+                                if csv_exporter:
+                                    csv_exporter.write_row(item)
+                                elif json_exporter:
+                                    if output_format == 'bulk-json':
+                                        # Format for bulk download compatibility
+                                        bulk_item = {
+                                            "id": item.get("id"),
+                                            "name": item.get("name"),
+                                            "type": item.get("type"),
+                                            "description": item.get("description"),
+                                            "allowCommercialUse": item.get("allowCommercialUse"),
+                                            "allowDerivatives": item.get("allowDerivatives"),
+                                            "allowNoCredit": item.get("allowNoCredit"),
+                                            "allowDifferentLicense": item.get("allowDifferentLicense"),
+                                            "nsfw": item.get("nsfw"),
+                                            "tags": item.get("tags"),
+                                            "stats": item.get("stats"),
+                                            "creator": item.get("creator"),
+                                            "modelVersions": item.get("modelVersions")
+                                        }
+                                        # Add base model filtering info if used
+                                        if base_model:
+                                            model_versions = item.get("modelVersions", [])
+                                            for version in model_versions:
+                                                if isinstance(version, dict) and version.get("baseModel", "").lower() == base_model.lower():
+                                                    bulk_item["filtered_version_id"] = version.get("id")
+                                                    bulk_item["filtered_version_name"] = version.get("name")
+                                                    bulk_item["filtered_base_model"] = version.get("baseModel")
+                                                    break
+                                        json_exporter.write_item(bulk_item)
+                                    else:
+                                        json_exporter.write_item(item)
+                            except Exception as e:
+                                logger.warning(f"Failed to stream write item {item.get('id', 'N/A')}: {e}")
+                    
                     # Add all items to results (for raw file)
                     results.extend(page_items)
                     collected += len(page_items)
@@ -447,7 +506,39 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
                     # No filtering needed, use original logic
                     remaining = limit - collected
                     items_to_take = min(len(page_items), remaining)
-                    results.extend(page_items[:items_to_take])
+                    items_taken = page_items[:items_to_take]
+                    
+                    # Stream write items immediately
+                    if items_taken and (csv_exporter or json_exporter):
+                        for item in items_taken:
+                            try:
+                                if csv_exporter:
+                                    csv_exporter.write_row(item)
+                                elif json_exporter:
+                                    if output_format == 'bulk-json':
+                                        # Format for bulk download compatibility (same as above)
+                                        bulk_item = {
+                                            "id": item.get("id"),
+                                            "name": item.get("name"),
+                                            "type": item.get("type"),
+                                            "description": item.get("description"),
+                                            "allowCommercialUse": item.get("allowCommercialUse"),
+                                            "allowDerivatives": item.get("allowDerivatives"),
+                                            "allowNoCredit": item.get("allowNoCredit"),
+                                            "allowDifferentLicense": item.get("allowDifferentLicense"),
+                                            "nsfw": item.get("nsfw"),
+                                            "tags": item.get("tags"),
+                                            "stats": item.get("stats"),
+                                            "creator": item.get("creator"),
+                                            "modelVersions": item.get("modelVersions")
+                                        }
+                                        json_exporter.write_item(bulk_item)
+                                    else:
+                                        json_exporter.write_item(item)
+                            except Exception as e:
+                                logger.warning(f"Failed to stream write item {item.get('id', 'N/A')}: {e}")
+                    
+                    results.extend(items_taken)
                     collected += items_to_take
                     
                     if collected >= limit:
@@ -461,6 +552,17 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
         except Exception as e:
             click.echo(f"Error during search: {e}", err=True)
             return
+        finally:
+            # Close streaming exporters
+            try:
+                if csv_exporter:
+                    csv_exporter.close()
+                    click.echo(f"Streaming CSV export completed: {output}")
+                if json_exporter:
+                    json_exporter.close()
+                    click.echo(f"Streaming JSON export completed: {output}")
+            except Exception as e:
+                logger.warning(f"Error closing export files: {e}")
         
         if not results:
             click.echo("No results found.")

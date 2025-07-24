@@ -66,6 +66,14 @@ cache/
 *.db
 data/*.db
 
+# Data directory (too large)
+data/
+
+# Output files
+reports/
+*.csv
+*.json
+
 # Debug and test files
 debug_*.py
 test_*.txt

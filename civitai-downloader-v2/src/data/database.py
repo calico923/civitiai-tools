@@ -60,6 +60,7 @@ class DatabaseManager:
                     allowCommercialUse TEXT,
                     created_at TEXT,
                     updated_at TEXT,
+                    priority_category TEXT,
                     raw_data TEXT,
                     UNIQUE(id)
                 )
@@ -154,8 +155,8 @@ class DatabaseManager:
                 cursor.execute("""
                     INSERT OR REPLACE INTO models (
                         id, name, type, description, creator_id, creator_username,
-                        nsfw, allowCommercialUse, created_at, updated_at, raw_data
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        nsfw, allowCommercialUse, created_at, updated_at, priority_category, raw_data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     model_data.get('id'),
                     model_data.get('name'),
@@ -167,6 +168,7 @@ class DatabaseManager:
                     model_data.get('allowCommercialUse'),
                     model_data.get('createdAt'),
                     model_data.get('updatedAt'),
+                    model_data.get('priority_category'),
                     str(model_data)  # Store raw JSON as string
                 ))
                 
