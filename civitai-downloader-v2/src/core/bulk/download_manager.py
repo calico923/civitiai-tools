@@ -585,16 +585,11 @@ class BulkDownloadManager:
             job.download_tasks[str(file_info.id)] = task_id
             batch_tasks.append(task_id)
         
-        # Start all tasks in batch
-        download_futures = []
+        # Start tasks sequentially to respect rate limits and server load
         for task_id in batch_tasks:
-            future = self.download_manager.start_download(task_id)
-            download_futures.append((task_id, future))
-        
-        # Wait for batch completion
-        for task_id, future in download_futures:
             try:
-                success = await future
+                # Start download and wait for completion before starting next
+                success = await self.download_manager.start_download(task_id)
                 task = self.download_manager.get_task_status(task_id)
                 
                 if success and task:
