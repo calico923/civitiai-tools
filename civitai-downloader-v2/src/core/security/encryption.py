@@ -446,12 +446,32 @@ class DataEncryption:
         key_material = master_key
         
         if context:
-            # Add context to key derivation
-            context_data = json.dumps(context, sort_keys=True).encode()
+            # Sanitize and validate context before serialization
+            safe_context = self._sanitize_context(context)
+            context_data = json.dumps(safe_context, sort_keys=True).encode()
             key_material = key_material + context_data
         
         # Hash to create consistent password
         return hashlib.sha256(key_material).digest()
+    
+    def _sanitize_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Sanitize context data to prevent injection attacks."""
+        if not isinstance(context, dict):
+            return {}
+        
+        safe_context = {}
+        # Allow only safe data types and limit depth
+        for key, value in context.items():
+            if isinstance(key, str) and len(key) <= 100:  # Limit key length
+                if isinstance(value, (str, int, float, bool)):
+                    if isinstance(value, str) and len(value) <= 1000:  # Limit string length
+                        safe_context[key] = value
+                    elif not isinstance(value, str):
+                        safe_context[key] = value
+                elif value is None:
+                    safe_context[key] = None
+        
+        return safe_context
     
     def _calculate_integrity_hash(self, encrypted_data: EncryptedData) -> str:
         """Calculate integrity hash for encrypted data."""
