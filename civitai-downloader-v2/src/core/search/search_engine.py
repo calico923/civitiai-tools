@@ -670,3 +670,95 @@ class AdvancedSearchEngine:
         )
         
         return await self.search(search_params)
+
+
+class LocalVersionFilter:
+    """
+    ローカルフィルタリングシステム - APIレスポンス後のバージョンレベルフィルタリング
+    CivitAI APIはモデル単位でフィルタリングするため、バージョンレベルでの厳密なフィルタリングはローカルで実行
+    """
+    
+    def __init__(self):
+        """Initialize version filter."""
+        self.filter_stats = {
+            'models_processed': 0,
+            'models_removed': 0,
+            'versions_processed': 0,
+            'versions_removed': 0,
+            'base_model_filtered': 0,
+            'type_filtered': 0
+        }
+    
+    def filter_by_version_criteria(self, models: List[Dict[str, Any]], 
+                                 base_model: Optional[str] = None,
+                                 model_types: Optional[List[str]] = None) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+        """
+        バージョンレベルでの厳密フィルタリング
+        
+        Args:
+            models: CivitAI APIから取得したモデルリスト
+            base_model: 必要なベースモデル (例: "Illustrious")
+            model_types: 必要なモデルタイプリスト (例: ["LORA"])
+            
+        Returns:
+            フィルタリング済みモデルリストと統計情報のタプル
+        """
+        self.filter_stats = {
+            'models_processed': 0,
+            'models_removed': 0,
+            'versions_processed': 0,
+            'versions_removed': 0,
+            'base_model_filtered': 0,
+            'type_filtered': 0
+        }
+        
+        filtered_models = []
+        
+        for model in models:
+            self.filter_stats['models_processed'] += 1
+            original_versions = model.get('modelVersions', [])
+            filtered_versions = []
+            for version in original_versions:
+                self.filter_stats['versions_processed'] += 1
+                should_include = True
+                
+                # ベースモデルフィルタリング
+                if base_model:
+                    version_base_model = version.get('baseModel', '')
+                    if version_base_model != base_model:
+                        should_include = False
+                        self.filter_stats['base_model_filtered'] += 1
+                
+                # モデルタイプフィルタリング（モデル単位でチェック）
+                if model_types and should_include:
+                    model_type = model.get('type', '')
+                    if model_type not in model_types:
+                        should_include = False
+                        self.filter_stats['type_filtered'] += 1
+                
+                if should_include:
+                    filtered_versions.append(version)
+                else:
+                    self.filter_stats['versions_removed'] += 1
+            
+            # フィルタリング後にバージョンが残っている場合のみモデルを含める
+            if filtered_versions:
+                filtered_model = model.copy()
+                filtered_model['modelVersions'] = filtered_versions
+                filtered_models.append(filtered_model)
+            else:
+                self.filter_stats['models_removed'] += 1
+        
+        return filtered_models, dict(self.filter_stats)
+    
+    def print_filter_statistics(self, stats: Dict[str, int]) -> None:
+        """フィルタリング統計情報を表示"""
+        print("\n📊 ローカルフィルタリング統計:")
+        print(f"  処理されたモデル: {stats['models_processed']}")
+        print(f"  除外されたモデル: {stats['models_removed']}")
+        print(f"  残存モデル: {stats['models_processed'] - stats['models_removed']}")
+        print(f"  処理されたバージョン: {stats['versions_processed']}")
+        print(f"  除外されたバージョン: {stats['versions_removed']}")
+        print(f"    ├─ ベースモデル不適合: {stats['base_model_filtered']}")
+        print(f"    └─ タイプ不適合: {stats['type_filtered']}")
+        print(f"  残存バージョン: {stats['versions_processed'] - stats['versions_removed']}")

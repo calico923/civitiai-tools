@@ -575,6 +575,90 @@ def search_command(query, nsfw_level, types, tags, base_model, category, sort, s
             click.echo("No results found.")
             return
         
+        # Apply local version-level filtering if needed
+        original_count = len(results)
+        if base_model or parsed_types:
+            from ..core.search.search_engine import LocalVersionFilter
+            
+            local_filter = LocalVersionFilter()
+            results, filter_stats = local_filter.filter_by_version_criteria(
+                results, 
+                base_model=base_model,
+                model_types=parsed_types
+            )
+            
+            # Show filtering statistics if filtering was applied
+            if filter_stats['models_removed'] > 0 or filter_stats['versions_removed'] > 0:
+                local_filter.print_filter_statistics(filter_stats)
+                print(f"\n🔄 フィルタリング適用: {original_count} → {len(results)} モデル")
+                
+                # Create new filtered file if output was specified
+                if output and len(results) > 0:
+                    # Generate new filename with "_filtered" suffix
+                    output_path = Path(output)
+                    filtered_filename = output_path.stem + "_filtered" + output_path.suffix
+                    filtered_output = output_path.parent / filtered_filename
+                    
+                    if output_format == 'json':
+                        with open(filtered_output, 'w', encoding='utf-8') as f:
+                            json.dump(results, f, indent=2, ensure_ascii=False)
+                        click.echo(f"Filtered results saved to: {filtered_output}")
+                    elif output_format == 'csv':
+                        import csv
+                        with open(filtered_output, 'w', encoding='utf-8', newline='') as f:
+                            csv_writer = csv.writer(f)
+                            csv_writer.writerow(["ID", "Name", "Base Model", "Type", "Tags", "Trained Words", "Likes", "Downloads", "Images", "Updates", "NSFW", "Image", "Rent", "RentCivit", "Sell", "Model URL", "Download URL"])
+                            
+                            for result in results:
+                                result_id = result.get("id", 0)
+                                name = result.get("name", "Unknown")
+                                result_type = result.get("type", "Unknown")
+                                
+                                # Extract tags
+                                model_tags = result.get("tags", [])
+                                tags_list = []
+                                for tag in model_tags:
+                                    if isinstance(tag, dict):
+                                        tags_list.append(tag.get("name", ""))
+                                    else:
+                                        tags_list.append(str(tag))
+                                tags_str = ", ".join(tags_list)
+                                
+                                # Extract trained words from all versions
+                                trained_words_set = set()
+                                for version in result.get("modelVersions", []):
+                                    if isinstance(version, dict):
+                                        version_words = version.get("trainedWords", [])
+                                        if isinstance(version_words, list):
+                                            trained_words_set.update(version_words)
+                                trained_words_str = ", ".join(sorted(trained_words_set))
+                                
+                                # Get statistics
+                                stats = result.get("stats", {})
+                                likes = stats.get("thumbsUpCount", 0) if isinstance(stats, dict) else 0
+                                downloads = stats.get("downloadCount", 0) if isinstance(stats, dict) else 0
+                                
+                                # Other fields
+                                nsfw_status = "NSFW" if result.get("nsfw", False) else "SFW"
+                                model_url = f"https://civitai.com/models/{result_id}"
+                                
+                                # Get first matching version for base model and download URL
+                                base_model_display = "Mixed"
+                                download_url = ""
+                                model_versions = result.get("modelVersions", [])
+                                if model_versions and isinstance(model_versions[0], dict):
+                                    first_version = model_versions[0]
+                                    base_model_display = first_version.get("baseModel", "Unknown")
+                                    version_id = first_version.get("id")
+                                    if version_id:
+                                        download_url = f"https://civitai.com/api/download/models/{version_id}"
+                                
+                                csv_writer.writerow([result_id, name, base_model_display, result_type, tags_str, trained_words_str, likes, downloads, 0, 0, nsfw_status, "Yes", "No", "No", "No", model_url, download_url])
+                        
+                        click.echo(f"Filtered CSV results saved to: {filtered_output}")
+                elif output and len(results) == 0:
+                    click.echo("No models passed the filtering criteria. No filtered file created.")
+        
         # Format output
         if output_format == 'json':
             # Convert results to dicts if they are objects
