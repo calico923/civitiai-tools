@@ -11,6 +11,8 @@ from typing import Optional, Dict, Any, List
 from contextlib import contextmanager
 import logging
 
+from .schema_manager import initialize_database
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,73 +35,8 @@ class DatabaseManager:
         # Thread safety
         self._lock = threading.Lock()
         
-        # Initialize database schema
-        self._init_database()
-    
-    def _init_database(self) -> None:
-        """Initialize database schema if not exists."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Models table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS models (
-                    id INTEGER PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    type TEXT,
-                    description TEXT,
-                    creator_id INTEGER,
-                    creator_username TEXT,
-                    nsfw BOOLEAN,
-                    allowCommercialUse TEXT,
-                    created_at TEXT,
-                    updated_at TEXT,
-                    raw_data TEXT,
-                    UNIQUE(id)
-                )
-            """)
-            
-            # Downloads table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS downloads (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    model_id INTEGER,
-                    file_id INTEGER,
-                    file_name TEXT NOT NULL,
-                    file_path TEXT,
-                    download_url TEXT,
-                    file_size INTEGER,
-                    hash_sha256 TEXT,
-                    status TEXT DEFAULT 'pending',
-                    downloaded_at TEXT,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY(model_id) REFERENCES models(id),
-                    UNIQUE(model_id, file_id)
-                )
-            """)
-            
-            # Search history table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS search_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    query TEXT NOT NULL,
-                    filters TEXT,
-                    results_count INTEGER,
-                    searched_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Metadata cache table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS metadata_cache (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL,
-                    expires_at TEXT,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            conn.commit()
+        # Initialize database schema using centralized schema manager
+        initialize_database(self.db_path, "main")
     
     @contextmanager
     def get_connection(self):

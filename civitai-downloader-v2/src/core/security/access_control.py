@@ -821,6 +821,8 @@ class AccessController:
         try:
             with sqlite3.connect(self.access_db) as conn:
                 cursor = conn.cursor()
+                # Sanitize context before logging
+                safe_context = self._sanitize_log_context(context) if context else None
                 cursor.execute("""
                     INSERT INTO access_log 
                     (user_id, resource, action, granted, reason, ip_address, risk_score, context)
@@ -828,12 +830,34 @@ class AccessController:
                 """, (
                     result.user_id, result.resource, result.action.value,
                     result.granted, result.reason, ip_address, result.risk_score,
-                    json.dumps(context) if context else None
+                    json.dumps(safe_context) if safe_context else None
                 ))
                 conn.commit()
                 
         except Exception as e:
             logger.error(f"Failed to log access: {e}")
+    
+    def _sanitize_log_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Sanitize context data for safe logging."""
+        if not isinstance(context, dict):
+            return {}
+        
+        safe_context = {}
+        # Allow only safe data types and limit size to prevent log injection
+        for key, value in context.items():
+            if isinstance(key, str) and len(key) <= 50:  # Limit key length for logs
+                if isinstance(value, (str, int, float, bool)):
+                    if isinstance(value, str) and len(value) <= 500:  # Limit string length for logs
+                        # Remove potential log injection characters
+                        safe_value = str(value).encode('ascii', 'ignore').decode('ascii')
+                        safe_value = safe_value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+                        safe_context[key] = safe_value[:500]
+                    elif not isinstance(value, str):
+                        safe_context[key] = value
+                elif value is None:
+                    safe_context[key] = None
+        
+        return safe_context
     
     def _log_security_event(self, event_type: str, severity: str, user_id: Optional[str],
                           ip_address: Optional[str], description: str, details: Optional[Dict] = None) -> None:
