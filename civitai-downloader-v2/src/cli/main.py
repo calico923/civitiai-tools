@@ -1318,7 +1318,8 @@ def scan_command(file_path, detailed):
 @click.option('--max-retries', default=3, help='Maximum number of retry attempts for failed requests')
 @click.option('--max-concurrent', default=3, help='Maximum number of concurrent requests to API')
 @click.option('--rate-limit', default=0.5, type=float, help='Requests per second rate limit (default: 0.5)')
-def bulk_download_command(input_file, output_dir, batch_size, priority, verify_hashes, scan_security, job_name, base_model, organize_folders, download_images, download_metadata, skip_existing, force_redownload, max_retries, max_concurrent, rate_limit):
+@click.option('--limit', type=int, help='Limit the number of models to download (for testing)')
+def bulk_download_command(input_file, output_dir, batch_size, priority, verify_hashes, scan_security, job_name, base_model, organize_folders, download_images, download_metadata, skip_existing, force_redownload, max_retries, max_concurrent, rate_limit, limit):
     """Bulk download models from a file containing model IDs or search results."""
     
     async def run_bulk_download():
@@ -1455,6 +1456,12 @@ def bulk_download_command(input_file, output_dir, batch_size, priority, verify_h
                     return
             else:
                 click.echo(f"Found {len(models_to_download)} models to download")
+            
+            # Apply limit if specified
+            if limit and limit > 0:
+                original_count = len(models_to_download)
+                models_to_download = models_to_download[:limit]
+                click.echo(f"Limited to {len(models_to_download)} models (was {original_count})")
             
             # Initialize bulk download manager with database support
             from ..core.bulk.download_manager import BulkDownloadManager, BulkPriority
