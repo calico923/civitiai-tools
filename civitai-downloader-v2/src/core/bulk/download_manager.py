@@ -343,35 +343,9 @@ class BulkDownloadManager:
             download_metadata = job.options.get('download_metadata', True)
             
             for search_result in job.search_results:
-                # Process each model - create organized folder structure
-                if organize_folders:
-                    # Create folder structure: Type/BaseModel/Tag/[ID] ModelName/
-                    folder_structure = determine_folder_structure(search_result)
-                    model_folder = generate_model_folder_name(search_result)
-                    full_model_dir = base_output_dir / folder_structure / model_folder
-                else:
-                    # Simple flat structure in output directory
-                    full_model_dir = base_output_dir
-                
-                # Ensure model directory exists
-                full_model_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Download preview image if enabled
-                if download_images:
-                    try:
-                        image_path = await download_preview_image(search_result, full_model_dir)
-                        if image_path:
-                            print(f"✓ Downloaded preview image: {Path(image_path).name}")
-                    except Exception as e:
-                        print(f"Warning: Could not download preview image: {e}")
-                
-                # Create metadata files if enabled
-                if download_metadata:
-                    try:
-                        create_metadata_files(search_result, full_model_dir)
-                        print(f"✓ Created metadata files in: {full_model_dir}")
-                    except Exception as e:
-                        print(f"Warning: Could not create metadata files: {e}")
+                model_id = search_result.get('id')
+                model_name = search_result.get('name', 'Unknown')[:50]
+                print(f"🔍 Processing model ID{model_id}: {model_name}...")
                 
                 # Store model metadata in database
                 try:
@@ -379,12 +353,61 @@ class BulkDownloadManager:
                 except Exception as e:
                     print(f"Warning: Could not store model metadata: {e}")
                 
-                # Process each model version and file
-                for version in search_result.get('modelVersions', []):
-                    for file_info in version.get('files', []):
+                # Process each model version separately
+                versions = search_result.get('modelVersions', [])
+                print(f"📦 Found {len(versions)} versions for model ID{model_id}")
+                
+                for version_idx, version in enumerate(versions, 1):
+                    version_name = version.get('name', f"v{version.get('id', 'unknown')}")
+                    files_count = len(version.get('files', []))
+                    print(f"  📁 Version {version_idx}/{len(versions)}: {version_name} ({files_count} files)")
+                    
+                    # Create version-specific folder structure
+                    if organize_folders:
+                        # Create folder structure: Type/BaseModel/Tag/[ID] ModelName/VersionName/
+                        folder_structure = determine_folder_structure(search_result)
+                        model_folder = generate_model_folder_name(search_result)
+                        version_name = version.get('name', f"v{version.get('id', 'unknown')}")
+                        # Sanitize version name
+                        version_name = re.sub(r'[<>:"/\\|?*]', '_', str(version_name))
+                        full_version_dir = base_output_dir / folder_structure / model_folder / version_name
+                    else:
+                        # Simple flat structure in output directory
+                        full_version_dir = base_output_dir
+                    
+                    # Ensure version directory exists
+                    full_version_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Download preview image for this version if enabled
+                    if download_images:
+                        try:
+                            # Create version-specific metadata for image download
+                            version_data = search_result.copy()
+                            version_data['modelVersions'] = [version]  # Only this version
+                            image_path = await download_preview_image(version_data, full_version_dir)
+                            if image_path:
+                                print(f"✓ Downloaded preview image: {Path(image_path).name}")
+                        except Exception as e:
+                            print(f"Warning: Could not download preview image: {e}")
+                    
+                    # Create metadata files for this version if enabled
+                    if download_metadata:
+                        try:
+                            # Create version-specific metadata
+                            version_data = search_result.copy()
+                            version_data['modelVersions'] = [version]  # Only this version
+                            create_metadata_files(version_data, full_version_dir)
+                            print(f"✓ Created metadata files in: {full_version_dir}")
+                        except Exception as e:
+                            print(f"Warning: Could not create metadata files: {e}")
+                    
+                    # Process files for this version
+                    files = version.get('files', [])
+                    for file_idx, file_info in enumerate(files, 1):
+                        file_name = file_info.get('name', 'unknown.file')
+                        print(f"    📄 File {file_idx}/{len(files)}: {file_name}")
                         model_id = search_result.get('id')
                         file_id = file_info.get('id')
-                        file_name = file_info.get('name', 'unknown.file')
                         
                         # Create a mock task ID for pause/resume compatibility
                         task_id = f"task_{job_id}_{task_counter}"
@@ -402,41 +425,53 @@ class BulkDownloadManager:
                             print(f"⏭ Skipped (already downloaded): {file_name}")
                             continue
                         
-                        # Download file to organized directory structure
-                        download_result = await self.download_manager.download_file(
-                            url=file_info.get('downloadUrl', ''),
-                            filename=file_name,
-                            output_dir=str(full_model_dir)
-                        )
-                        
-                        if download_result.success:
-                            job.downloaded_files += 1
-                            print(f"✓ Downloaded: {file_name}")
+                        # Download file to version-specific directory structure
+                        print(f"      🔄 Starting download: {file_name}")
+                        try:
+                            download_result = await self.download_manager.download_file(
+                                url=file_info.get('downloadUrl', ''),
+                                filename=file_name,
+                                output_dir=str(full_version_dir)
+                            )
+                            print(f"      📥 Download result: {download_result.success}")
                             
-                            # Record successful download in database
-                            download_data = {
-                                'model_id': model_id,
-                                'file_id': file_id,
-                                'file_name': file_name,
-                                'file_path': str(full_model_dir / file_name),
-                                'download_url': file_info.get('downloadUrl', ''),
-                                'file_size': file_info.get('sizeKB', 0) * 1024,
-                                'hash_sha256': file_info.get('hashes', {}).get('SHA256', ''),
-                                'status': 'completed',
-                                'downloaded_at': datetime.now().isoformat()
-                            }
-                            
-                            try:
-                                self.database_manager.record_download(download_data)
-                            except Exception as e:
-                                print(f"Warning: Could not record download: {e}")
-                        else:
+                            if download_result.success:
+                                job.downloaded_files += 1
+                                print(f"      ✅ Downloaded: {file_name}")
+                                
+                                # Record successful download in database
+                                download_data = {
+                                    'model_id': model_id,
+                                    'file_id': file_id,
+                                    'file_name': file_name,
+                                    'file_path': str(full_version_dir / file_name),
+                                    'download_url': file_info.get('downloadUrl', ''),
+                                    'file_size': file_info.get('sizeKB', 0) * 1024,
+                                    'hash_sha256': file_info.get('hashes', {}).get('SHA256', ''),
+                                    'status': 'completed',
+                                    'downloaded_at': datetime.now().isoformat()
+                                }
+                                
+                                try:
+                                    self.database_manager.record_download(download_data)
+                                except Exception as e:
+                                    print(f"Warning: Could not record download: {e}")
+                            else:
+                                job.failed_files += 1
+                                error_msg = getattr(download_result, 'error_message', 'Download failed')
+                                print(f"      ❌ Failed: {file_name} - {error_msg}")
+                                job.errors.append({
+                                    'file': file_name,
+                                    'error': error_msg,
+                                    'timestamp': time.time()
+                                })
+                        except Exception as e:
                             job.failed_files += 1
-                            error_msg = getattr(download_result, 'error_message', 'Download failed')
-                            print(f"✗ Failed: {file_name} - {error_msg}")
+                            print(f"      💥 Exception during download: {file_name} - {str(e)}")
                             job.errors.append({
                                 'file': file_name,
-                                'error': error_msg
+                                'error': str(e),
+                                'timestamp': time.time()
                             })
             
             # Mark job as completed (only if not paused)
