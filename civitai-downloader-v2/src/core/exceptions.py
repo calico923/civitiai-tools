@@ -21,6 +21,11 @@ class APIError(CivitAIDownloaderError):
         super().__init__(message)
         self.status_code = status_code
         self.response_data = response_data
+    
+    def __str__(self):
+        if self.status_code:
+            return f"{super().__str__()} (HTTP {self.status_code})"
+        return super().__str__()
 
 
 class NetworkError(CivitAIDownloaderError):
@@ -54,6 +59,14 @@ class DownloadError(CivitAIDownloaderError):
         super().__init__(message)
         self.url = url
         self.file_path = file_path
+    
+    def __str__(self):
+        parts = [super().__str__()]
+        if self.url:
+            parts.append(f"URL: {self.url}")
+        if self.file_path:
+            parts.append(f"File: {self.file_path}")
+        return " - ".join(parts)
 
 
 class ConfigError(CivitAIDownloaderError):

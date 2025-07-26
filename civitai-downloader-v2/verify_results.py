@@ -3,7 +3,6 @@
 
 import sys
 import asyncio
-import json
 sys.path.append('.')
 
 from src.cli.main import cli_context
@@ -82,21 +81,21 @@ async def analyze_session_results(session_id: str, expected_category: str):
     correct_classifications = category_counts.get(expected_category, 0)
     classification_accuracy = (correct_classifications / total_models * 100) if total_models > 0 else 0
     
-    print(f"📊 **DUPLICATE CHECK RESULTS**")
+    print("📊 **DUPLICATE CHECK RESULTS**")
     print(f"   Total models: {total_models}")
     print(f"   Unique models: {unique_models}")
     print(f"   Duplicates found: {duplicate_count}")
     
     if duplicates:
-        print(f"\n❌ **DUPLICATE MODELS FOUND:**")
+        print("\n❌ **DUPLICATE MODELS FOUND:**")
         for i, dup in enumerate(duplicates[:5], 1):  # Show first 5
             print(f"   {i}. ID: {dup['id']} - {dup['name']}")
         if len(duplicates) > 5:
             print(f"   ... and {len(duplicates) - 5} more")
     else:
-        print(f"✅ No duplicates found!")
+        print("✅ No duplicates found!")
     
-    print(f"\n📊 **CLASSIFICATION RESULTS**")
+    print("\n📊 **CLASSIFICATION RESULTS**")
     print(f"   Target category: {expected_category}")
     print(f"   Correct classifications: {correct_classifications}/{total_models} ({classification_accuracy:.1f}%)")
     

@@ -177,11 +177,11 @@ class AdvancedSearchEngine:
             if "connection" in str(e).lower() or "network" in str(e).lower():
                 logger.error(f"Network error in official search: {e}")
                 self.unofficial_api_manager.record_feature_usage('basic_search', False)
-                raise NetworkError(f"Network error during search: {e}")
+                raise NetworkError(f"Network error during search: {e}") from e
             else:
                 logger.error(f"Official search failed: {e}")
                 self.unofficial_api_manager.record_feature_usage('basic_search', False)
-                raise SearchError(f"Search operation failed: {e}")
+                raise SearchError(f"Search operation failed: {e}") from e
     
     async def search_streaming(self, search_params: AdvancedSearchParams, 
                              batch_size: int = 50):
@@ -255,11 +255,11 @@ class AdvancedSearchEngine:
             if "connection" in str(e).lower() or "network" in str(e).lower():
                 logger.error(f"Network error in official search: {e}")
                 self.unofficial_api_manager.record_feature_usage('basic_search', False)
-                raise NetworkError(f"Network error during search: {e}")
+                raise NetworkError(f"Network error during search: {e}") from e
             else:
                 logger.error(f"Official search failed: {e}")
                 self.unofficial_api_manager.record_feature_usage('basic_search', False)
-                raise SearchError(f"Search operation failed: {e}")
+                raise SearchError(f"Search operation failed: {e}") from e
     
     async def _advanced_search(self, search_params: AdvancedSearchParams) -> SearchResult:
         """Perform advanced search using unofficial API features."""

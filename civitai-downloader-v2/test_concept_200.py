@@ -33,7 +33,7 @@ async def test_concept_200():
     )
     
     print(f"🎯 Target: {search_params.limit} Concept models")
-    print(f"📋 Parameters: Illustrious + LORA + Concept category")
+    print("📋 Parameters: Illustrious + LORA + Concept category")
     print("🚀 Starting streaming search...")
     
     start_time = time.time()
@@ -46,7 +46,7 @@ async def test_concept_200():
         
         elapsed_time = time.time() - start_time
         
-        print(f"\n✅ CONCEPT search completed!")
+        print("\n✅ CONCEPT search completed!")
         print(f"⏱️  Time: {elapsed_time:.1f}s")
         print(f"📊 Raw models: {summary['raw_models']}")
         print(f"🔍 Filtered models: {summary['filtered_models']}")
@@ -64,7 +64,7 @@ async def test_concept_200():
             success = False
         
         # Analyze category distribution
-        print(f"\n📈 Category analysis:")
+        print("\n📈 Category analysis:")
         category_counts = {}
         model_count = 0
         target_category_count = 0
@@ -88,7 +88,7 @@ async def test_concept_200():
                     model_name = model.get('name', 'Unknown')
                     print(f"  {model_count}. {model_name} → {primary_cat} {all_cats}")
         
-        print(f"\n📊 Category distribution:")
+        print("\n📊 Category distribution:")
         for cat, count in sorted(category_counts.items(), key=lambda x: x[1], reverse=True):
             percentage = (count / model_count) * 100
             print(f"  {cat}: {count} ({percentage:.1f}%)")

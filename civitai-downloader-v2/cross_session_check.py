@@ -3,7 +3,6 @@
 
 import sys
 import asyncio
-import json
 sys.path.append('.')
 
 from src.cli.main import cli_context
@@ -57,13 +56,13 @@ async def check_cross_session_duplicates():
     # Find cross-session duplicates
     cross_duplicates = style_ids.intersection(concept_ids)
     
-    print(f"\n📊 **CROSS-SESSION ANALYSIS**")
+    print("\n📊 **CROSS-SESSION ANALYSIS**")
     print(f"   Style models: {len(style_ids)}")
     print(f"   Concept models: {len(concept_ids)}")
     print(f"   Cross-session duplicates: {len(cross_duplicates)}")
     
     if cross_duplicates:
-        print(f"\n❌ **CROSS-SESSION DUPLICATES FOUND:**")
+        print("\n❌ **CROSS-SESSION DUPLICATES FOUND:**")
         for i, model_id in enumerate(list(cross_duplicates)[:10], 1):  # Show first 10
             style_info = style_models[model_id]
             concept_info = concept_models[model_id]
@@ -84,7 +83,7 @@ async def check_cross_session_duplicates():
         print(f"   or tag order inconsistency.")
         
     else:
-        print(f"✅ No cross-session duplicates found!")
+        print("✅ No cross-session duplicates found!")
         print(f"   Each model appears in only one category, as expected.")
     
     # Additional analysis: Category tag verification
