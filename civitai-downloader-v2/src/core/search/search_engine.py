@@ -528,12 +528,9 @@ class AdvancedSearchEngine:
                 if cache_age_hours > 24:
                     print("DEBUG: Cache expired (>24h), will refresh from API")
                     return None
-                    
-                if cache_age_hours > 6:
-                    # Check for new models if cache is 6+ hours old
-                    if await self._has_new_models_since(search_params, cache_info['latest_model_id']):
-                        print("DEBUG: New models detected, refreshing cache")
-                        return None
+                elif cache_age_hours > 6 and await self._has_new_models_since(search_params, cache_info['latest_model_id']):
+                    print("DEBUG: New models detected, refreshing cache")
+                    return None
             
             # Query database for matching models
             cached_models = db.search_models(
@@ -661,7 +658,6 @@ class AdvancedSearchEngine:
             raise ValueError("API client not configured")
         
         # Rate limiting: wait between requests to avoid being banned
-        import asyncio
         import time
         
         # Check if we need to wait (minimum 1 second between requests)

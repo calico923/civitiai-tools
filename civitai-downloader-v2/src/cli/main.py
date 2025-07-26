@@ -14,7 +14,7 @@ import logging
 
 # Import core components
 from ..core.search.search_engine import AdvancedSearchEngine
-from ..core.search.advanced_search import AdvancedSearchParams, NSFWFilter
+from ..core.search.advanced_search import ModelCategory, SortOption, ModelQuality, CommercialUse, FileFormat
 from ..core.download.manager import DownloadManager
 from ..core.config.system_config import SystemConfig as ConfigManager
 from ..core.security.scanner import SecurityScanner
@@ -126,29 +126,17 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
     async def run_search():
         try:
             # Use config for default output format
-            nonlocal output_format, base_model
+            nonlocal output_format
             if not output_format:
                 output_format = cli_context.config_manager.get('reports.default_format', 'json')
             
             # Import enums for categories
-            from ..core.search.advanced_search import AdvancedSearchParams, NSFWFilter, ModelCategory, SortOption
-            
-            # Capture parent function parameters
-            search_query = query
-            search_nsfw = nsfw
-            search_types = types
-            search_sort = sort
-            search_limit = limit
-            search_output = output
-            search_output_format = output_format
-            search_categories = categories
-            search_tags = tags
-            search_base_model = base_model
+            from ..core.search.advanced_search import AdvancedSearchParams, NSFWFilter
             
             # Convert categories to ModelCategory enums
             category_enums = []
-            if search_categories:
-                for cat in search_categories:
+            if categories:
+                for cat in categories:
                     try:
                         category_enums.append(ModelCategory(cat.lower()))
                     except ValueError:
@@ -156,86 +144,46 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
             
             # Convert sort to SortOption enum
             sort_option = None
-            if search_sort:
+            if sort:
                 try:
-                    sort_option = SortOption(search_sort)
+                    sort_option = SortOption(sort)
                 except ValueError:
-                    click.echo(f"Warning: Unknown sort option '{search_sort}', using default", err=True)
+                    click.echo(f"Warning: Unknown sort option '{sort}', using default", err=True)
             
             # Build AdvancedSearchParams
-            tags_list = list(search_tags) if search_tags else []
+            tags_list = list(tags) if tags else []
             search_params = AdvancedSearchParams(
-                query=search_query if search_query else None,
-                model_types=list(search_types) if search_types else [],
+                query=query if query else None,
+                model_types=list(types) if types else [],
                 categories=category_enums,
                 tags=tags_list,
-                base_model=search_base_model,
-                nsfw_filter=NSFWFilter.INCLUDE_ALL if search_nsfw else NSFWFilter.SFW_ONLY,
+                base_model=base_model,
+                nsfw_filter=NSFWFilter.INCLUDE_ALL if nsfw else NSFWFilter.SFW_ONLY,
                 sort_option=sort_option,
-                limit=search_limit
+                limit=limit
             )
             
             # Show search info
-            click.echo(f"Searching for: {search_query or 'all models'}")
-            if search_types:
-                click.echo(f"Types: {', '.join(search_types)}")
-            if search_categories:
-                click.echo(f"Categories: {', '.join(search_categories)}")
-            if search_tags:
-                click.echo(f"Tags: {', '.join(search_tags)}")
-            if search_base_model:
-                click.echo(f"Base model: {search_base_model}")
-            if search_nsfw:
+            click.echo(f"Searching for: {query or 'all models'}")
+            if types:
+                click.echo(f"Types: {', '.join(types)}")
+            if categories:
+                click.echo(f"Categories: {', '.join(categories)}")
+            if tags:
+                click.echo(f"Tags: {', '.join(tags)}")
+            if base_model:
+                click.echo(f"Base model: {base_model}")
+            if nsfw:
                 click.echo("Including NSFW content")
             
-            # Perform search with pagination to get required number of results
-            all_results = []
-            current_page = 1
-            cursor = None
+            # Perform search directly using AdvancedSearchEngine
+            search_result = await cli_context.search_engine.search(search_params)
             
-            while len(all_results) < search_limit:
-                # Update search params for current page/cursor
-                current_search_params = search_params
-                if cursor:
-                    # Use cursor for next page
-                    current_search_params.page = None
-                    # TODO: Add cursor support to AdvancedSearchParams
-                else:
-                    current_search_params.page = current_page
-                
-                search_result = await cli_context.search_engine.search(current_search_params)
-                
-                if not search_result or not search_result.models:
-                    break
-                
-                # Add results to our collection
-                page_results = search_result.models
-                all_results.extend(page_results)
-                
-                click.echo(f"Page {current_page}: Retrieved {len(page_results)} items (Total: {len(all_results)})")
-                
-                # Check if we have enough results or if there are no more pages
-                if len(page_results) == 0 or len(all_results) >= search_limit:
-                    break
-                
-                # Check for next page indicators
-                has_next = getattr(search_result, 'has_next', False)
-                cursor = getattr(search_result, 'next_cursor', None)
-                
-                if not has_next and not cursor:
-                    break
-                
-                current_page += 1
-            
-            # Trim to exact limit if we got more than requested
-            if len(all_results) > search_limit:
-                all_results = all_results[:search_limit]
-            
-            if not all_results:
+            if not search_result or not search_result.models:
                 click.echo("No results found.")
                 return
-                
-            results = all_results
+            
+            results = search_result.models[:limit]
             click.echo(f"Final results: {len(results)} items")
             
             # Store models in database
@@ -249,14 +197,14 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
             try:
                 import datetime
                 search_data = {
-                    'query': search_query or '',
+                    'query': query or '',
                     'filters': json.dumps({
-                        'types': list(search_types) if search_types else [],
-                        'categories': list(search_categories) if search_categories else [],
-                        'tags': list(search_tags) if search_tags else [],
-                        'nsfw': search_nsfw,
-                        'sort': search_sort,
-                        'limit': search_limit
+                        'types': list(types) if types else [],
+                        'categories': list(categories) if categories else [],
+                        'tags': list(tags) if tags else [],
+                        'nsfw': nsfw,
+                        'sort': sort,
+                        'limit': limit
                     }),
                     'results_count': len(results),
                     'searched_at': datetime.datetime.now().isoformat()
@@ -278,7 +226,7 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                 logger.warning(f"Failed to record search history: {e}")
             
             # Format output
-            if search_output_format == 'json':
+            if output_format == 'json':
                 # Convert SearchResult objects to dictionaries for JSON serialization
                 json_results = []
                 for result in results:
@@ -290,7 +238,7 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                 
                 output_data = json.dumps(json_results, indent=2, default=str)
                 click.echo(output_data)
-            elif search_output_format == 'csv':
+            elif output_format == 'csv':
                 import csv
                 import io
                 
@@ -371,17 +319,17 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                 click.echo("Invalid output format", err=True)
             
             # Save to file if requested
-            if search_output:
+            if output:
                 # Determine output directory
-                if not Path(search_output).is_absolute():
+                if not Path(output).is_absolute():
                     # If relative path, use reports directory from config
                     reports_dir = Path(cli_context.config_manager.get('reports.dir', 'reports'))
                     reports_dir.mkdir(parents=True, exist_ok=True)
-                    output_path = reports_dir / search_output
+                    output_path = reports_dir / output
                 else:
-                    output_path = Path(search_output)
+                    output_path = Path(output)
                 
-                if search_output_format == 'csv':
+                if output_format == 'csv':
                     import csv
                     with open(output_path, 'w', newline='', encoding='utf-8') as f:
                         csv_writer = csv.writer(f)
@@ -715,7 +663,7 @@ def info_command(model_id, versions, files):
                 return
             
             # Display basic info
-            click.echo(f"\n📋 Model Information:")
+            click.echo("\n📋 Model Information:")
             click.echo(f"  Name: {model_info.get('name', 'Unknown')}")
             click.echo(f"  Type: {model_info.get('type', 'Unknown')}")
             click.echo(f"  NSFW: {'Yes' if model_info.get('nsfw', False) else 'No'}")
@@ -729,7 +677,7 @@ def info_command(model_id, versions, files):
                 elif tags:
                     click.echo(f"  Tags: {', '.join(map(str, tags))}")
                 else:
-                    click.echo(f"  Tags: None")
+                    click.echo("  Tags: None")
             else:
                 click.echo(f"  Tags: {tags}")
             
@@ -741,8 +689,8 @@ def info_command(model_id, versions, files):
                 click.echo(f"  Downloads: {downloads:,}")
                 click.echo(f"  Favorites: {favorites:,}")
             else:
-                click.echo(f"  Downloads: Unknown")
-                click.echo(f"  Favorites: Unknown")
+                click.echo("  Downloads: Unknown")
+                click.echo("  Favorites: Unknown")
             
             # Display description if available
             description = model_info.get('description', '')
@@ -753,7 +701,7 @@ def info_command(model_id, versions, files):
                 click.echo(f"  Description: {description}")
             
             if versions:
-                click.echo(f"\n📦 Versions:")
+                click.echo("\n📦 Versions:")
                 model_versions = model_info.get('modelVersions', [])
                 if model_versions:
                     for i, version in enumerate(model_versions):
@@ -767,7 +715,8 @@ def info_command(model_id, versions, files):
                                 from datetime import datetime
                                 parsed_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
                                 created_at = parsed_date.strftime('%Y-%m-%d')
-                            except:
+                            except (ValueError, AttributeError):
+                                # Keep original format if parsing fails
                                 pass
                         latest = " (Latest)" if i == 0 else ""
                         click.echo(f"  {version_name}{latest}")
@@ -779,7 +728,7 @@ def info_command(model_id, versions, files):
                     click.echo("  No versions available")
             
             if files:
-                click.echo(f"\n📁 Files:")
+                click.echo("\n📁 Files:")
                 model_versions = model_info.get('modelVersions', [])
                 if model_versions:
                     for version in model_versions:
@@ -839,7 +788,7 @@ def scan_command(file_path, detailed):
                     click.echo(f"   - {issue.severity.upper()}: {issue.description}")
             
             if detailed:
-                click.echo(f"\n📊 Detailed Results:")
+                click.echo("\n📊 Detailed Results:")
                 click.echo(f"   File size: {scan_result.file_size:,} bytes")
                 click.echo(f"   File type: {scan_result.file_type}")
                 click.echo(f"   Scan time: {scan_result.scan_duration:.2f}s")
