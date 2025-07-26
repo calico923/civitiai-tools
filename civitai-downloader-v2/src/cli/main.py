@@ -286,12 +286,15 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                     # NSFW
                     nsfw_status = 'Yes' if result.get('nsfw', False) else 'No'
                     
-                    # Commercial Use
+                    # Commercial Use (1=allowed, 0=not allowed)
                     allow_commercial = result.get('allowCommercialUse', [])
                     if isinstance(allow_commercial, list):
-                        commercial_use = ';'.join(allow_commercial) if allow_commercial else 'None'
+                        # If list has any commercial use permissions, set to 1
+                        commercial_use = '1' if allow_commercial and len(allow_commercial) > 0 else '0'
+                    elif isinstance(allow_commercial, bool):
+                        commercial_use = '1' if allow_commercial else '0'
                     else:
-                        commercial_use = 'None'
+                        commercial_use = '0'
                     
                     # Creator
                     creator = result.get('creator', {})
@@ -380,12 +383,15 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                             # NSFW
                             nsfw_status = 'Yes' if result.get('nsfw', False) else 'No'
                             
-                            # Commercial Use
+                            # Commercial Use (1=allowed, 0=not allowed)
                             allow_commercial = result.get('allowCommercialUse', [])
                             if isinstance(allow_commercial, list):
-                                commercial_use = ';'.join(allow_commercial) if allow_commercial else 'None'
+                                # If list has any commercial use permissions, set to 1
+                                commercial_use = '1' if allow_commercial and len(allow_commercial) > 0 else '0'
+                            elif isinstance(allow_commercial, bool):
+                                commercial_use = '1' if allow_commercial else '0'
                             else:
-                                commercial_use = 'None'
+                                commercial_use = '0'
                             
                             # Creator
                             creator = result.get('creator', {})

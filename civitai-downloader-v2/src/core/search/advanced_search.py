@@ -215,8 +215,6 @@ class AdvancedSearchParams:
         # Validate limits
         if self.limit <= 0:
             errors.append("Limit must be positive")
-        if self.limit > 200:  # API limit per requirement 13.3
-            errors.append("Limit cannot exceed 200")
         
         if self.page <= 0:
             errors.append("Page must be positive")
@@ -233,10 +231,14 @@ class AdvancedSearchParams:
         if self.username:
             params['username'] = self.username
         if self.model_types:
-            params['types'] = self.model_types
+            # CivitAI API uses 'types' for model types
+            if len(self.model_types) == 1:
+                params['type'] = self.model_types[0]
+            else:
+                params['types'] = self.model_types
         
         # Pagination
-        params['limit'] = min(self.limit, 200)  # Enforce API limit
+        params['limit'] = min(self.limit, 100)  # Enforce API limit (100 per page)
         params['page'] = self.page
         
         # Date range
@@ -262,15 +264,20 @@ class AdvancedSearchParams:
         elif self.commercial_filter == CommercialUse.NON_COMMERCIAL_ONLY:
             params['allowCommercialUse'] = False
         
-        # Tags and categories (categories are integrated into tag system per requirement 11.5)
-        all_tags = list(self.tags) if self.tags else []
+        # Categories (use correct API parameter)
         if self.categories:
-            all_tags.extend([cat.value for cat in self.categories])
+            # CivitAI API uses 'category' parameter for categories
+            categories_list = [cat.value for cat in self.categories]
+            if len(categories_list) == 1:
+                params['category'] = categories_list[0]
+            else:
+                params['categories'] = categories_list
         
-        if all_tags:
-            params['tag'] = all_tags
+        # Tags (separate from categories)
+        if self.tags:
+            params['tag'] = self.tags
         
-        # Base model
+        # Base model (correct parameter name)
         if self.base_model:
             params['baseModel'] = self.base_model
         

@@ -33,6 +33,7 @@ class OptimizedDatabase:
         # Enable SQLite optimizations
         self._connect()
         self._configure_sqlite()
+        self.create_optimized_schema()
     
     def _connect(self) -> None:
         """Create database connection with optimizations."""
@@ -633,6 +634,156 @@ class OptimizedDatabase:
             return "\n".join(sql_statements)
         
         return ""
+    
+    def search_models(self, base_model: Optional[str] = None, 
+                     model_types: Optional[List[str]] = None,
+                     categories: Optional[List[str]] = None,
+                     limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Search models with filtering support and OR logic for categories.
+        
+        Args:
+            base_model: Base model to filter by
+            model_types: Model types to filter by
+            categories: Categories to filter by (OR logic)
+            limit: Maximum number of results
+            
+        Returns:
+            List of matching models
+        """
+        if not self.connection:
+            return []
+        
+        cursor = self.connection.cursor()
+        
+        # Build WHERE conditions
+        where_conditions = []
+        values = []
+        
+        # Base model filtering (exact match in JSON)
+        if base_model:
+            where_conditions.append("json_extract(metadata, '$.modelVersions[0].baseModel') = ?")
+            values.append(base_model)
+        
+        # Model type filtering using virtual column
+        if model_types:
+            model_type_placeholders = ','.join(['?' for _ in model_types])
+            where_conditions.append(f"model_type_virtual IN ({model_type_placeholders})")
+            values.extend(model_types)
+        
+        # Category filtering with OR logic
+        if categories:
+            # Build OR conditions for categories in tags
+            category_conditions = []
+            for category in categories:
+                category_conditions.append("json_extract(metadata, '$.tags') LIKE ?")
+                values.append(f'%{category.lower()}%')
+            
+            if category_conditions:
+                where_conditions.append(f"({' OR '.join(category_conditions)})")
+        
+        # Build final query
+        base_query = """
+            SELECT id, name, description, metadata, stats
+            FROM models
+        """
+        
+        if where_conditions:
+            base_query += " WHERE " + " AND ".join(where_conditions)
+        
+        base_query += f" ORDER BY created_at DESC LIMIT {limit}"
+        
+        try:
+            cursor.execute(base_query, values)
+            results = cursor.fetchall()
+            
+            # Convert to dictionaries and parse JSON fields
+            models = []
+            for row in results:
+                model_dict = dict(row)
+                # Parse JSON fields
+                if isinstance(model_dict.get('metadata'), str):
+                    try:
+                        model_dict['metadata'] = json.loads(model_dict['metadata'])
+                    except json.JSONDecodeError:
+                        pass
+                if isinstance(model_dict.get('stats'), str):
+                    try:
+                        model_dict['stats'] = json.loads(model_dict['stats'])
+                    except json.JSONDecodeError:
+                        pass
+                
+                # Convert to CivitAI API format if needed
+                if 'metadata' in model_dict and isinstance(model_dict['metadata'], dict):
+                    # Extract fields from metadata to match API format
+                    metadata = model_dict['metadata']
+                    api_model = {
+                        'id': model_dict['id'],
+                        'name': model_dict['name'],
+                        'description': model_dict.get('description', ''),
+                        'type': metadata.get('type', ''),
+                        'tags': metadata.get('tags', []),
+                        'modelVersions': metadata.get('modelVersions', []),
+                        'stats': model_dict.get('stats', {}),
+                        'nsfw': metadata.get('nsfw', False),
+                        'allowCommercialUse': metadata.get('allowCommercialUse', False)
+                    }
+                    models.append(api_model)
+                else:
+                    models.append(model_dict)
+            
+            return models
+            
+        except Exception as e:
+            self.logger.warning(f"Database search failed: {e}")
+            return []
+    
+    def store_model(self, model_data: Dict[str, Any]) -> None:
+        """
+        Store model data in database with proper format.
+        
+        Args:
+            model_data: Model data from CivitAI API
+        """
+        if not self.connection:
+            return
+        
+        try:
+            cursor = self.connection.cursor()
+            
+            # Prepare data for storage
+            model_id = model_data.get('id')
+            name = model_data.get('name', '')
+            description = model_data.get('description', '')
+            
+            # Store most fields in metadata JSON
+            metadata = {
+                'type': model_data.get('type', ''),
+                'tags': model_data.get('tags', []),
+                'modelVersions': model_data.get('modelVersions', []),
+                'nsfw': model_data.get('nsfw', False),
+                'allowCommercialUse': model_data.get('allowCommercialUse', False)
+            }
+            
+            # Store stats separately
+            stats = model_data.get('stats', {})
+            
+            # Insert or replace
+            cursor.execute("""
+                INSERT OR REPLACE INTO models (id, name, description, metadata, stats)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                model_id,
+                name,
+                description,
+                json.dumps(metadata),
+                json.dumps(stats)
+            ))
+            
+            self.connection.commit()
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to store model {model_data.get('id', 'unknown')}: {e}")
     
     def close(self) -> None:
         """Close database connection."""

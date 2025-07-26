@@ -70,18 +70,29 @@ class SystemConfig:
                 'api_key': None  # Required, no default
             },
             'download': {
-                'concurrent_downloads': 3,
+                'dir': 'downloads',
+                'temp_dir': 'downloads/temp',
+                'concurrent_downloads': 1,
                 'chunk_size': 8192,
-                'paths': {
-                    'models': './downloads/models',
-                    'temp': './downloads/temp'
-                }
+                'max_file_size_per_download_gb': 10.0,
+                'organize_by_type': True,
+                'organize_by_creator': False
             },
-            'logging': {
-                'level': 'INFO'
+            'reports': {
+                'dir': 'reports',
+                'default_format': 'json'
             },
             'security': {
-                'verify_ssl': True
+                'verify_ssl': True,
+                'enable_scan': True,
+                'quarantine_dir': 'quarantine'
+            },
+            'logging': {
+                'level': 'INFO',
+                'file': 'logs/civitai.log'
+            },
+            'database': {
+                'path': 'data/civitai.db'
             }
         }
     
@@ -99,14 +110,36 @@ class SystemConfig:
     def _apply_env_overrides(self) -> None:
         """Apply environment variable overrides."""
         env_mappings = {
+            # API Configuration
             'CIVITAI_API_KEY': 'api.api_key',
             'CIVITAI_BASE_URL': 'api.base_url',
             'CIVITAI_TIMEOUT': 'api.timeout',
+            'CIVITAI_MAX_RETRIES': 'api.max_retries',
+            
+            # Download Configuration
+            'CIVITAI_DOWNLOAD_DIR': 'download.dir',
+            'CIVITAI_TEMP_DIR': 'download.temp_dir',
             'CIVITAI_CONCURRENT_DOWNLOADS': 'download.concurrent_downloads',
             'CIVITAI_CHUNK_SIZE': 'download.chunk_size',
+            'CIVITAI_MAX_FILE_SIZE_PER_DOWNLOAD_GB': 'download.max_file_size_per_download_gb',
+            'CIVITAI_ORGANIZE_BY_TYPE': 'download.organize_by_type',
+            'CIVITAI_ORGANIZE_BY_CREATOR': 'download.organize_by_creator',
+            
+            # Reports Configuration
+            'CIVITAI_REPORTS_DIR': 'reports.dir',
+            'CIVITAI_DEFAULT_OUTPUT_FORMAT': 'reports.default_format',
+            
+            # Security Configuration
             'CIVITAI_VERIFY_SSL': 'security.verify_ssl',
+            'CIVITAI_ENABLE_SECURITY_SCAN': 'security.enable_scan',
+            'CIVITAI_QUARANTINE_DIR': 'security.quarantine_dir',
+            
+            # Logging Configuration
             'CIVITAI_LOG_LEVEL': 'logging.level',
-            'CIVITAI_MAX_RETRIES': 'api.max_retries'
+            'CIVITAI_LOG_FILE': 'logging.file',
+            
+            # Database Configuration
+            'CIVITAI_DATABASE_PATH': 'database.path'
         }
         
         for env_var, config_path in env_mappings.items():
@@ -119,18 +152,28 @@ class SystemConfig:
     def _convert_env_value(self, config_path: str, value: str) -> Union[str, int, float, bool]:
         """Convert environment variable string to appropriate type."""
         # Boolean conversion
-        if config_path in ['security.verify_ssl']:
+        boolean_paths = [
+            'security.verify_ssl', 'security.enable_scan',
+            'download.organize_by_type', 'download.organize_by_creator'
+        ]
+        if config_path in boolean_paths:
             return value.lower() in ('true', '1', 'yes', 'on')
         
         # Integer conversion
-        if config_path in ['api.timeout', 'download.concurrent_downloads', 'download.chunk_size']:
+        integer_paths = [
+            'api.timeout', 'download.concurrent_downloads', 'download.chunk_size'
+        ]
+        if config_path in integer_paths:
             try:
                 return int(value)
             except ValueError:
                 return value  # Return as string if conversion fails
         
         # Float conversion
-        if config_path in ['api.max_retries']:
+        float_paths = [
+            'api.max_retries', 'download.max_file_size_per_download_gb'
+        ]
+        if config_path in float_paths:
             try:
                 return float(value)
             except ValueError:

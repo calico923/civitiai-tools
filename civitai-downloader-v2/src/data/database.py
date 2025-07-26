@@ -82,6 +82,13 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
+                # Convert complex types to strings for storage
+                allow_commercial = model_data.get('allowCommercialUse')
+                if isinstance(allow_commercial, list):
+                    allow_commercial = ','.join(allow_commercial)
+                elif allow_commercial is not None:
+                    allow_commercial = str(allow_commercial)
+                
                 cursor.execute("""
                     INSERT OR REPLACE INTO models (
                         id, name, type, description, creator_id, creator_username,
@@ -95,7 +102,7 @@ class DatabaseManager:
                     model_data.get('creator', {}).get('id'),
                     model_data.get('creator', {}).get('username'),
                     model_data.get('nsfw'),
-                    model_data.get('allowCommercialUse'),
+                    allow_commercial,
                     model_data.get('createdAt'),
                     model_data.get('updatedAt'),
                     str(model_data)  # Store raw JSON as string
@@ -170,13 +177,13 @@ class DatabaseManager:
             logger.error(f"Failed to record download: {e}")
             return False
     
-    def is_downloaded(self, model_id: int, file_id: int) -> bool:
+    def is_downloaded(self, model_id: int, file_id: Optional[int] = None) -> bool:
         """
         Check if a file has been downloaded.
         
         Args:
             model_id: Model ID
-            file_id: File ID
+            file_id: File ID (optional, if None checks any file for the model)
             
         Returns:
             True if already downloaded
@@ -184,10 +191,17 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT COUNT(*) FROM downloads 
-                    WHERE model_id = ? AND file_id = ? AND status = 'completed'
-                """, (model_id, file_id))
+                
+                if file_id is not None:
+                    cursor.execute("""
+                        SELECT COUNT(*) FROM downloads 
+                        WHERE model_id = ? AND file_id = ? AND status = 'completed'
+                    """, (model_id, file_id))
+                else:
+                    cursor.execute("""
+                        SELECT COUNT(*) FROM downloads 
+                        WHERE model_id = ? AND status = 'completed'
+                    """, (model_id,))
                 
                 count = cursor.fetchone()[0]
                 return count > 0

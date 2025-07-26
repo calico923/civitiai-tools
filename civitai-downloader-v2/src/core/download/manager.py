@@ -101,6 +101,15 @@ class ProgressUpdate:
     error_message: Optional[str] = None
 
 
+@dataclass
+class DownloadResult:
+    """Result of a download operation."""
+    success: bool
+    file_path: Optional[Path] = None
+    error_message: Optional[str] = None
+    task_id: Optional[str] = None
+
+
 class DownloadManager:
     """Advanced download manager with concurrent downloads and resume capability."""
     
@@ -588,6 +597,64 @@ class DownloadManager:
         
         # Return SafeTensors files first, then others
         return safetensors_files + other_files
+    
+    async def download_file(self, url: str, output_dir: Optional[Path] = None, 
+                          filename: Optional[str] = None) -> DownloadResult:
+        """
+        Download a single file from URL.
+        
+        Args:
+            url: Download URL
+            output_dir: Output directory
+            filename: Optional custom filename
+            
+        Returns:
+            DownloadResult with success status and file path
+        """
+        try:
+            # Create FileInfo from URL
+            file_info = FileInfo(
+                id=0,  # Use 0 for direct URL downloads
+                name=filename or url.split('/')[-1] or 'download',
+                url=url,
+                size=0  # Will be determined during download
+            )
+            
+            # Set output path
+            if output_dir:
+                output_path = Path(output_dir) / file_info.name
+            else:
+                output_path = self.default_output_dir / file_info.name
+            
+            # Create and start download task
+            task_id = self.create_download_task(file_info, output_path)
+            success = await self.start_download(task_id)
+            
+            # Process the download queue
+            await self.process_download_queue()
+            
+            # Get final task status
+            task = self.get_task_status(task_id)
+            
+            if task and task.status == DownloadStatus.COMPLETED:
+                return DownloadResult(
+                    success=True,
+                    file_path=output_path,
+                    task_id=task_id
+                )
+            else:
+                error_msg = task.error_message if task else "Download failed"
+                return DownloadResult(
+                    success=False,
+                    error_message=error_msg,
+                    task_id=task_id
+                )
+                
+        except Exception as e:
+            return DownloadResult(
+                success=False,
+                error_message=str(e)
+            )
     
     async def close(self) -> None:
         """Close download manager and cleanup resources."""
