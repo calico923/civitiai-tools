@@ -46,22 +46,23 @@ class FileFormat(Enum):
 
 
 class ModelCategory(Enum):
-    """Model categories per requirement 11.1 (15 categories)."""
+    """Model categories aligned with SQL migration."""
     CHARACTER = "character"
     STYLE = "style"
     CONCEPT = "concept"
-    BACKGROUND = "background"
-    POSES = "poses"
-    VEHICLE = "vehicle"
     CLOTHING = "clothing"
-    ACTION = "action"
-    ANIMAL = "animal"
-    ASSETS = "assets"
-    BASE_MODEL = "base model"
-    BUILDINGS = "buildings"
-    CELEBRITY = "celebrity"
-    OBJECTS = "objects"
+    BACKGROUND = "background"
     TOOL = "tool"
+    BUILDING = "building"
+    VEHICLE = "vehicle"
+    OBJECT = "object"
+    ANIMAL = "animal"
+    BODY = "body"
+    OUTFIT = "outfit"
+    BASE = "base"
+    ACTION = "action"
+    WORKFLOW = "workflow"
+    WILDCARDS = "wildcards"
 
 
 class SortOption(Enum):
