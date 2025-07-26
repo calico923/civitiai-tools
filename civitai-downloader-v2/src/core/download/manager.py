@@ -628,7 +628,7 @@ class DownloadManager:
             
             # Create and start download task
             task_id = self.create_download_task(file_info, output_path)
-            success = await self.start_download(task_id)
+            await self.start_download(task_id)
             
             # Process the download queue
             await self.process_download_queue()
