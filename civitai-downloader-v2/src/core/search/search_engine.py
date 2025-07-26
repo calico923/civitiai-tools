@@ -789,7 +789,7 @@ class AdvancedSearchEngine:
                 'detected_models': len(self.base_model_detector.detected_models),
                 'all_models': self.base_model_detector.get_all_detected_models()
             },
-            'filter_statistics': dict(self.triple_filter.filter_stats)
+            'filter_statistics': {}
         }
     
     def configure_unofficial_features(self, enable_advanced: bool = False, 
