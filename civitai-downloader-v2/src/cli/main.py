@@ -120,7 +120,9 @@ def cli(ctx, config, verbose):
 @click.option('--format', 'output_format', 
               type=click.Choice(['json', 'csv']), 
               help='Output format (default: from config)')
-def search_command(query, nsfw, types, sort, limit, output, output_format, categories, tags, base_model):
+@click.option('--resume', help='Resume from previous session ID')
+@click.option('--stream/--no-stream', default=True, help='Use streaming processing (default: True)')
+def search_command(query, nsfw, types, sort, limit, output, output_format, categories, tags, base_model, resume, stream):
     """Search for models on CivitAI."""
     
     async def run_search():
@@ -176,15 +178,55 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
             if nsfw:
                 click.echo("Including NSFW content")
             
-            # Perform search directly using AdvancedSearchEngine
-            search_result = await cli_context.search_engine.search(search_params)
-            
-            if not search_result or not search_result.models:
-                click.echo("No results found.")
-                return
-            
-            results = search_result.models[:limit]
-            click.echo(f"Final results: {len(results)} items")
+            # ストリーム処理 vs 従来処理の選択
+            if stream:
+                # ストリーム処理を使用
+                from ..core.stream import StreamingSearchEngine, IntermediateFileManager
+                
+                intermediate_manager = IntermediateFileManager()
+                streaming_engine = StreamingSearchEngine(cli_context.search_engine, intermediate_manager)
+                
+                click.echo("Using streaming processing with intermediate files...")
+                
+                # ストリーミング検索実行
+                session_id, summary = await streaming_engine.streaming_search_with_recovery(
+                    search_params, resume_session=resume
+                )
+                
+                click.echo(f"Session completed: {session_id}")
+                click.echo(f"Raw models: {summary['raw_models']}")
+                click.echo(f"Filtered models: {summary['filtered_models']}")
+                click.echo(f"Processed models: {summary['processed_models']}")
+                
+                # 処理済みモデルをストリーム取得
+                results = []
+                async for batch in streaming_engine.get_processed_models_stream(session_id):
+                    # 処理情報を元のモデルデータに統合
+                    for model in batch:
+                        if '_processing' in model:
+                            # カテゴリ分類結果をモデルデータに統合
+                            processing = model.pop('_processing')
+                            model['_primary_category'] = processing['primary_category']
+                            model['_all_categories'] = processing['all_categories']
+                        results.append(model)
+                    
+                    if len(results) >= limit:
+                        break
+                
+                results = results[:limit]
+                click.echo(f"Final results: {len(results)} items")
+                
+            else:
+                # 従来の一括処理
+                click.echo("Using traditional batch processing...")
+                search_result = await cli_context.search_engine.search(search_params)
+                
+                if not search_result or not search_result.models:
+                    click.echo("No results found.")
+                    return
+                
+                results = search_result.models[:limit]
+                click.echo(f"Final results: {len(results)} items")
             
             # Store models in database
             for model in results:
@@ -243,7 +285,7 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                 import io
                 
                 # CSV header
-                click.echo("ID,Name,Type,Base_Model,Tags,Trained_Words,Downloads,Favorites,NSFW,Commercial_Use,Creator,Model_URL,Download_URL")
+                click.echo("ID,Name,Type,Base_Model,Primary_Category,Tags,Trained_Words,Downloads,Favorites,NSFW,Commercial_Use,Creator,Model_URL,Download_URL")
                 
                 # CSV data
                 for result in results:
@@ -257,6 +299,17 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                     model_versions = result.get('modelVersions', [])
                     if model_versions and len(model_versions) > 0:
                         base_model = model_versions[0].get('baseModel', 'Unknown')
+                    
+                    # Category classification (use pre-processed data if available)
+                    if '_primary_category' in result:
+                        # ストリーミング処理済みデータを使用
+                        primary_category_str = result['_primary_category']
+                    else:
+                        # 従来処理の場合はその場で分類
+                        from ..core.category import CategoryClassifier
+                        classifier = CategoryClassifier()
+                        primary_category, all_categories = classifier.classify_model(result)
+                        primary_category_str = primary_category if primary_category else 'other'
                     
                     # Tags
                     result_tags = result.get('tags', [])
@@ -312,7 +365,7 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                     output_buffer = io.StringIO()
                     csv_writer = csv.writer(output_buffer)
                     csv_writer.writerow([
-                        model_id, name, model_type, base_model, tags_str, trained_words_str,
+                        model_id, name, model_type, base_model, primary_category_str, tags_str, trained_words_str,
                         downloads, favorites, nsfw_status, commercial_use, creator_name, model_url, download_url
                     ])
                     csv_line = output_buffer.getvalue().strip()
@@ -338,7 +391,7 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                         csv_writer = csv.writer(f)
                         # Write header
                         csv_writer.writerow([
-                            'ID', 'Name', 'Type', 'Base_Model', 'Tags', 'Trained_Words',
+                            'ID', 'Name', 'Type', 'Base_Model', 'Primary_Category', 'Tags', 'Trained_Words',
                             'Downloads', 'Favorites', 'NSFW', 'Commercial_Use', 'Creator', 'Model_URL', 'Download_URL'
                         ])
                         
@@ -354,6 +407,17 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                             model_versions = result.get('modelVersions', [])
                             if model_versions and len(model_versions) > 0:
                                 base_model = model_versions[0].get('baseModel', 'Unknown')
+                            
+                            # Category classification (use pre-processed data if available)
+                            if '_primary_category' in result:
+                                # ストリーミング処理済みデータを使用
+                                primary_category_str = result['_primary_category']
+                            else:
+                                # 従来処理の場合はその場で分類
+                                from ..core.category import CategoryClassifier
+                                classifier = CategoryClassifier()
+                                primary_category, all_categories = classifier.classify_model(result)
+                                primary_category_str = primary_category if primary_category else 'other'
                             
                             # Tags
                             result_tags = result.get('tags', [])
@@ -407,7 +471,7 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                             
                             # Write row
                             csv_writer.writerow([
-                                model_id, name, model_type, base_model, tags_str, trained_words_str,
+                                model_id, name, model_type, base_model, primary_category_str, tags_str, trained_words_str,
                                 downloads, favorites, nsfw_status, commercial_use, creator_name, model_url, download_url
                             ])
                 else:
