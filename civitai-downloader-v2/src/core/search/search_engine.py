@@ -33,176 +33,6 @@ class SearchResult:
     fallback_used: Optional[str] = None
 
 
-class TripleFilterEngine:
-    """
-    Triple filtering system per requirement 11.2.
-    Implements Category × Tag × Model Type filtering.
-    """
-    
-    def __init__(self, security_scanner: Optional[SecurityScanner] = None):
-        """Initialize triple filter engine."""
-        self.security_scanner = security_scanner or SecurityScanner()
-        self.filter_stats = {
-            'category_filtered': 0,
-            'tag_filtered': 0,
-            'type_filtered': 0,
-            'security_filtered': 0,
-            'total_processed': 0
-        }
-    
-    def apply_triple_filter(self, models: List[Dict[str, Any]], 
-                          search_params: AdvancedSearchParams) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
-        """
-        Apply category × tag × model type filtering per requirement 11.2.
-        
-        Args:
-            models: List of models to filter
-            search_params: Search parameters with filter criteria
-            
-        Returns:
-            Tuple of (filtered_models, filter_statistics)
-        """
-        self.filter_stats['total_processed'] = len(models)
-        filtered_models = models.copy()
-        
-        # Step 1: Category filtering
-        if search_params.categories:
-            before_count = len(filtered_models)
-            filtered_models = self._filter_by_categories(filtered_models, search_params.categories)
-            self.filter_stats['category_filtered'] = before_count - len(filtered_models)
-        
-        # Step 2: Tag filtering
-        if search_params.tags:
-            before_count = len(filtered_models)
-            filtered_models = self._filter_by_tags(filtered_models, search_params.tags)
-            self.filter_stats['tag_filtered'] = before_count - len(filtered_models)
-        
-        # Step 3: Model type filtering
-        if search_params.model_types:
-            before_count = len(filtered_models)
-            filtered_models = self._filter_by_types(filtered_models, search_params.model_types)
-            self.filter_stats['type_filtered'] = before_count - len(filtered_models)
-        
-        # Step 4: Security filtering (if file format specified)
-        if search_params.file_format != FileFormat.ALL_FORMATS:
-            before_count = len(filtered_models)
-            filtered_models = self._filter_by_security(filtered_models, search_params.file_format)
-            self.filter_stats['security_filtered'] = before_count - len(filtered_models)
-        
-        return filtered_models, dict(self.filter_stats)
-    
-    def _filter_by_categories(self, models: List[Dict[str, Any]], 
-                            categories: List[ModelCategory]) -> List[Dict[str, Any]]:
-        """Filter models by categories (integrated into tag system per requirement 11.5)."""
-        category_names = {cat.value.lower() for cat in categories}
-        filtered = []
-        
-        for model in models:
-            model_tags = self._extract_model_tags(model)
-            model_categories = {tag.lower() for tag in model_tags if tag.lower() in category_names}
-            
-            # Model passes if it has any of the specified categories
-            if model_categories:
-                filtered.append(model)
-        
-        return filtered
-    
-    def _filter_by_tags(self, models: List[Dict[str, Any]], 
-                       tags: List[str]) -> List[Dict[str, Any]]:
-        """Filter models by tags."""
-        target_tags = {tag.lower() for tag in tags}
-        filtered = []
-        
-        for model in models:
-            model_tags = {tag.lower() for tag in self._extract_model_tags(model)}
-            
-            # Model passes if it has any of the specified tags
-            if target_tags.intersection(model_tags):
-                filtered.append(model)
-        
-        return filtered
-    
-    def _filter_by_types(self, models: List[Dict[str, Any]], 
-                        model_types: List[str]) -> List[Dict[str, Any]]:
-        """Filter models by type."""
-        target_types = {t.lower() for t in model_types}
-        filtered = []
-        
-        for model in models:
-            model_type = model.get('type', '').lower()
-            if model_type in target_types:
-                filtered.append(model)
-        
-        return filtered
-    
-    def _filter_by_security(self, models: List[Dict[str, Any]], 
-                          file_format: FileFormat) -> List[Dict[str, Any]]:
-        """Filter models by security requirements per requirement 10.6."""
-        filtered = []
-        
-        for model in models:
-            # Get model files
-            files = []
-            for version in model.get('modelVersions', []):
-                files.extend(version.get('files', []))
-            
-            if not files:
-                continue
-            
-            # Apply file format filtering
-            safe_files = []
-            for file_info in files:
-                file_name = file_info.get('name', '').lower()
-                
-                if file_format == FileFormat.SAFETENSORS_ONLY:
-                    if file_name.endswith('.safetensors'):
-                        safe_files.append(file_info)
-                elif file_format == FileFormat.PICKLE_ALLOWED:
-                    # Allow both safetensors and pickle, but prefer safetensors
-                    if file_name.endswith(('.safetensors', '.ckpt', '.pt', '.pth')):
-                        safe_files.append(file_info)
-                else:  # ALL_FORMATS
-                    safe_files.append(file_info)
-            
-            # Only include models with acceptable files
-            if safe_files:
-                # Perform security scan on primary file
-                primary_file = safe_files[0]
-                scan_result = self.security_scanner.perform_security_scan(primary_file)
-                
-                # Include if file is safe or format allows risky files
-                if scan_result.is_safe() or file_format == FileFormat.ALL_FORMATS:
-                    # Add security metadata to model
-                    model['security_scan'] = scan_result.to_dict()
-                    model['safe_files'] = safe_files
-                    filtered.append(model)
-        
-        return filtered
-    
-    def _extract_model_tags(self, model: Dict[str, Any]) -> List[str]:
-        """Extract all tags from model data."""
-        tags = []
-        
-        # Direct tags
-        for tag in model.get('tags', []):
-            if isinstance(tag, dict):
-                tags.append(tag.get('name', ''))
-            else:
-                tags.append(str(tag))
-        
-        # Category as tag (per requirement 11.5)
-        if 'category' in model:
-            tags.append(model['category'])
-        
-        # Version tags
-        for version in model.get('modelVersions', []):
-            for tag in version.get('tags', []):
-                if isinstance(tag, dict):
-                    tags.append(tag.get('name', ''))
-                else:
-                    tags.append(str(tag))
-        
-        return [tag for tag in tags if tag]
 
 
 class AdvancedSearchEngine:
@@ -216,8 +46,8 @@ class AdvancedSearchEngine:
         self.api_client = api_client
         self.base_model_detector = BaseModelDetector()
         self.unofficial_api_manager = UnofficialAPIManager()
-        self.triple_filter = TripleFilterEngine()
         self.license_manager = LicenseManager()
+        self.logger = logging.getLogger(__name__)
         
         # Search performance tracking
         self.search_stats = {
@@ -228,7 +58,28 @@ class AdvancedSearchEngine:
             'last_search_time': None
         }
     
-    async def search(self, search_params: AdvancedSearchParams) -> SearchResult:
+    async def search(self, query_or_params, filters=None):
+        """
+        Search with backward compatibility.
+        Support both old (query, filters) and new (AdvancedSearchParams) formats.
+        """
+        # Handle backward compatibility
+        if isinstance(query_or_params, str) and filters is not None:
+            # Old format: search(query, filters)
+            from .advanced_search import AdvancedSearchParams, NSFWFilter
+            search_params = AdvancedSearchParams(
+                query=query_or_params,
+                model_types=filters.get('types', []),
+                nsfw_filter=NSFWFilter.INCLUDE_ALL if filters.get('nsfw', False) else NSFWFilter.SFW_ONLY,
+                limit=filters.get('limit', 100)
+            )
+        else:
+            # New format: search(AdvancedSearchParams)
+            search_params = query_or_params
+        
+        return await self._search_internal(search_params)
+    
+    async def _search_internal(self, search_params: AdvancedSearchParams) -> SearchResult:
         """
         Perform advanced search with comprehensive filtering.
         
@@ -238,6 +89,9 @@ class AdvancedSearchEngine:
         Returns:
             SearchResult with filtered models and metadata
         """
+        print(f"DEBUG search_engine: search_params type: {type(search_params)}")
+        print(f"DEBUG search_engine: search_params: {search_params}")
+        
         start_time = time.time()
         self.search_stats['total_searches'] += 1
         
@@ -372,178 +226,470 @@ class AdvancedSearchEngine:
     
     async def _official_search(self, search_params: AdvancedSearchParams) -> SearchResult:
         """Perform official search using only documented API features."""
+        print(f"DEBUG _official_search: search_params type: {type(search_params)}")
+        print(f"DEBUG _official_search: search_params: {search_params}")
+        
+        # Check database cache first
+        cached_models = await self._check_db_cache(search_params)
+        if cached_models:
+            print(f"DEBUG: Using {len(cached_models)} cached models from database")
+            return SearchResult(
+                models=cached_models,
+                total_count=len(cached_models),
+                filtered_count=len(cached_models),
+                page=search_params.page,
+                has_next=False,
+                search_metadata={
+                    'search_type': 'cached',
+                    'source': 'database',
+                    'cache_hit': True
+                },
+                filter_applied={
+                    'categories': [cat.value for cat in search_params.categories] if search_params.categories else [],
+                    'tags': search_params.tags or [],
+                    'model_types': search_params.model_types or [],
+                    'base_model': search_params.base_model
+                }
+            )
+        
+        print("DEBUG: No suitable cache found, fetching from API")
+        
         # Convert to basic API parameters (official only)
         api_params = {
-            'limit': min(search_params.limit, 200),
-            'page': search_params.page
+            'limit': min(search_params.limit, 100)  # API max limit is 100
         }
         
+        # Handle query and pagination (CivitAI API constraint)
+        has_query = False
         if search_params.query:
             api_params['query'] = search_params.query
+            has_query = True
+        elif search_params.categories and not search_params.query:
+            # Use "/" query like WebUI for category searches
+            api_params['query'] = '/'
+            has_query = True
         
+        # Add page parameter only if no query (API constraint)
+        if not has_query:
+            api_params['page'] = search_params.page
+        
+        # Add model types (maps to 'types' parameter)
         if search_params.model_types:
             api_params['types'] = search_params.model_types
+        
+        # Handle categories: Always use local filtering for accuracy
+        use_local_category_filter = False
+        if search_params.categories:
+            category_names = [cat.value for cat in search_params.categories]
+            if len(category_names) == 1:
+                # Single category: use API filter + local filter (double validation)
+                api_params['category'] = category_names[0]
+                use_local_category_filter = True  # Force local filtering for accuracy
+                print(f"DEBUG: Using API category filter + local validation: {category_names[0]}")
+            else:
+                # Multiple categories: skip API filter, use local OR filter
+                use_local_category_filter = True
+                print(f"DEBUG: Multiple categories detected, using local OR filter: {category_names}")
+        
+        # Add base model parameter (critical for filtering)
+        if search_params.base_model:
+            api_params['baseModel'] = search_params.base_model
+        
+        # Add tags parameter
+        if search_params.tags:
+            # API supports multiple tags as comma-separated
+            api_params['tag'] = ','.join(search_params.tags)
         
         # Use official sort options only
         if search_params.sort_option:
             api_params['sort'] = search_params.sort_option.value
+        else:
+            # Default to models_v9 like WebUI
+            api_params['sort'] = 'Newest'
         
-        # Execute API call
-        response = await self._execute_api_call(api_params)
+        print(f"DEBUG: Final API params: {api_params}")
         
-        # Process results
-        models = response.get('items', [])
+        # Execute API call with appropriate pagination
+        all_models = []
+        target_limit = search_params.limit
+        per_page_limit = min(100, max(target_limit, 50))  # API max is 100 per page, fetch at least 50 for filtering
         
-        # Apply client-side filtering (since we can't use advanced API params)
-        filtered_models = self._apply_client_side_filters(models, search_params)
+        # Use cursor-based pagination for queries, page-based for non-queries
+        if has_query:
+            # Cursor-based pagination for queries
+            cursor = None
+            page_count = 0
+            
+            while len(all_models) < target_limit and page_count < 10:  # Safety limit
+                current_api_params = api_params.copy()
+                current_api_params['limit'] = min(per_page_limit, target_limit - len(all_models))
+                
+                if cursor:
+                    current_api_params['cursor'] = cursor
+                
+                print(f"DEBUG: Fetching with cursor={cursor}, limit={current_api_params['limit']}")
+                
+                response = await self._execute_api_call(current_api_params)
+                page_models = response.get('items', [])
+                
+                if not page_models:
+                    print(f"DEBUG: No more models found with cursor {cursor}")
+                    break
+                
+                all_models.extend(page_models)
+                print(f"DEBUG: Got {len(page_models)} models, total: {len(all_models)}")
+                
+                # Get next cursor
+                metadata = response.get('metadata', {})
+                cursor = metadata.get('nextCursor')
+                
+                if not cursor:
+                    print("DEBUG: No more cursors available")
+                    break
+                
+                page_count += 1
+        else:
+            # Page-based pagination for non-query searches
+            current_page = search_params.page
+            
+            while len(all_models) < target_limit:
+                current_api_params = api_params.copy()
+                current_api_params['page'] = current_page
+                current_api_params['limit'] = min(per_page_limit, target_limit - len(all_models))
+                
+                print(f"DEBUG: Fetching page {current_page} with limit {current_api_params['limit']}")
+                
+                response = await self._execute_api_call(current_api_params)
+                page_models = response.get('items', [])
+                
+                if not page_models:
+                    print(f"DEBUG: No more models found on page {current_page}")
+                    break
+                
+                all_models.extend(page_models)
+                print(f"DEBUG: Got {len(page_models)} models, total: {len(all_models)}")
+                
+                # Check if we have enough models or if this was the last page
+                metadata = response.get('metadata', {})
+                current_page_num = metadata.get('currentPage', current_page)
+                total_pages = metadata.get('totalPages', 1)
+                
+                if current_page_num >= total_pages or len(page_models) < current_api_params['limit']:
+                    print(f"DEBUG: Reached last page ({current_page_num}/{total_pages}) or got fewer models than requested")
+                    break
+                
+                current_page += 1
+                
+                # Safety break to prevent infinite loops
+                if current_page > 100:  # Maximum reasonable pages
+                    print("DEBUG: Safety break - too many pages")
+                    break
+        
+        print(f"DEBUG: Total models retrieved: {len(all_models)}")
+        
+        print(f"DEBUG: Initial API fetch completed: {len(all_models)} models")
+        
+        # Apply version-level filtering and continue fetching until target is reached
+        if search_params.base_model or use_local_category_filter:
+            filtered_models = []
+            current_cursor = cursor if has_query else None
+            
+            # Process initial batch
+            version_filter = LocalVersionFilter()
+            batch_filtered, filter_stats = version_filter.filter_by_version_criteria(
+                all_models, 
+                base_model=search_params.base_model,
+                model_types=search_params.model_types,
+                categories=[cat.value for cat in search_params.categories] if use_local_category_filter else None
+            )
+            filtered_models.extend(batch_filtered)
+            print(f"DEBUG: Initial batch filtered: {len(batch_filtered)} from {len(all_models)} models")
+            
+            # Continue fetching until we have enough filtered results or no more data
+            additional_fetches = 0
+            while current_cursor and len(filtered_models) < target_limit and has_query:  # Continue until target is reached (cursor pagination only)
+                additional_fetches += 1
+                needed = target_limit - len(filtered_models)
+                fetch_size = min(100, max(50, needed * 2))  # Fetch extra to account for filtering
+                
+                print(f"DEBUG: Need {needed} more, fetching batch #{additional_fetches} (size: {fetch_size})")
+                
+                additional_params = api_params.copy()
+                additional_params['cursor'] = current_cursor
+                additional_params['limit'] = fetch_size
+                
+                try:
+                    additional_response = await self._execute_api_call(additional_params)
+                    additional_models = additional_response.get('items', [])
+                    
+                    if not additional_models:
+                        break
+                    
+                    # Filter additional batch
+                    additional_filtered, _ = version_filter.filter_by_version_criteria(
+                        additional_models,
+                        base_model=search_params.base_model,
+                        model_types=search_params.model_types,
+                        categories=[cat.value for cat in search_params.categories] if use_local_category_filter else None
+                    )
+                    
+                    filtered_models.extend(additional_filtered)
+                    print(f"DEBUG: Batch #{additional_fetches}: +{len(additional_filtered)} filtered (total: {len(filtered_models)})")
+                    
+                    # Update cursor
+                    additional_metadata = additional_response.get('metadata', {})
+                    current_cursor = additional_metadata.get('nextCursor')
+                    
+                    if not current_cursor:
+                        break
+                        
+                except Exception as e:
+                    print(f"DEBUG: Error in additional fetch: {e}")
+                    break
+            
+            print(f"DEBUG: Final result: {len(filtered_models)} models after filtering (requested: {target_limit})")
+        else:
+            filtered_models = all_models
+            print(f"DEBUG: No base model filtering, using all {len(filtered_models)} models")
+        
+        # Cache results to database for future use
+        self._cache_models_to_db(filtered_models, search_params)
+        
+        # Update cache metadata
+        try:
+            from ...data.optimized_schema import OptimizedDatabase
+            db = OptimizedDatabase('data/civitai.db')
+            cache_key = self._generate_cache_key(search_params)
+            self._update_cache_info(db, cache_key, filtered_models)
+        except Exception as e:
+            self.logger.warning(f"Cache metadata update failed: {e}")
+        
+        print(f"DEBUG: Returning all filtered models: {len(filtered_models)}")
         
         return SearchResult(
             models=filtered_models,
-            total_count=response.get('totalItems', len(models)),
+            total_count=len(all_models),
             filtered_count=len(filtered_models),
             page=search_params.page,
-            has_next=len(filtered_models) >= search_params.limit,
+            has_next=False,  # We retrieved all available models
             search_metadata={
                 'search_type': 'official',
                 'api_params': api_params,
-                'client_side_filtering': True
+                'client_side_filtering': True,
+                'pagination_type': 'cursor' if has_query else 'page',
+                'raw_models_count': len(all_models)
             },
             filter_applied={
                 'categories': [cat.value for cat in search_params.categories] if search_params.categories else [],
                 'tags': search_params.tags or [],
-                'model_types': search_params.model_types or []
+                'model_types': search_params.model_types or [],
+                'base_model': search_params.base_model
             }
         )
     
-    def _apply_client_side_filters(self, models: List[Dict[str, Any]], 
-                                 search_params: AdvancedSearchParams) -> List[Dict[str, Any]]:
-        """Apply client-side filtering when API parameters aren't available."""
-        filtered = models.copy()
-        
-        # Apply download range filter
-        if search_params.download_range:
-            filtered = search_params.download_range.to_filter(filtered)
-        
-        # Apply NSFW filter
-        if search_params.nsfw_filter != NSFWFilter.INCLUDE_ALL:
-            filtered = self._filter_nsfw_content(filtered, search_params.nsfw_filter)
-        
-        # Apply quality filters
-        if search_params.quality_filter.value != 'all':
-            filtered = self._filter_by_quality(filtered, search_params.quality_filter)
-        
-        # Apply commercial filter
-        if search_params.commercial_filter.value != 'all':
-            filtered = self._filter_by_commercial_use(filtered, search_params.commercial_filter)
-        
-        # Apply triple filtering
-        filtered, _ = self.triple_filter.apply_triple_filter(filtered, search_params)
-        
-        return filtered
-    
-    def _apply_post_filters(self, models: List[Dict[str, Any]], 
-                          search_params: AdvancedSearchParams) -> List[Dict[str, Any]]:
-        """Apply post-processing filters."""
-        filtered = models.copy()
-        
-        # Apply license filtering if commercial use is specified
-        if search_params.commercial_filter.value == 'commercial':
-            filtered = self.license_manager.filter_commercial_models(filtered)
-        
-        # Apply base model filtering
-        if search_params.base_model:
-            filtered = self._filter_by_base_model(filtered, search_params.base_model)
-        
-        return filtered
-    
-    def _filter_nsfw_content(self, models: List[Dict[str, Any]], 
-                           nsfw_filter: NSFWFilter) -> List[Dict[str, Any]]:
-        """Filter NSFW content per requirement 10.3."""
-        if nsfw_filter == NSFWFilter.INCLUDE_ALL:
-            return models
-        
-        filtered = []
-        for model in models:
-            is_nsfw = model.get('nsfw', False)
+    def _cache_models_to_db(self, models: List[Dict[str, Any]], search_params: AdvancedSearchParams) -> None:
+        """Cache retrieved models to database for future use."""
+        try:
+            # Import database here to avoid circular imports
+            from ...data.optimized_schema import OptimizedDatabase
             
-            if nsfw_filter == NSFWFilter.SFW_ONLY and not is_nsfw:
-                filtered.append(model)
-            elif nsfw_filter == NSFWFilter.NSFW_ONLY and is_nsfw:
-                filtered.append(model)
-            elif nsfw_filter == NSFWFilter.MATURE:
-                # Include mature content but not explicit NSFW
-                nsfw_level = model.get('nsfwLevel', 0)
-                if nsfw_level <= 2:  # Assuming 0=SFW, 1=Suggestive, 2=Mature, 3+=Explicit
-                    filtered.append(model)
-        
-        return filtered
-    
-    def _filter_by_quality(self, models: List[Dict[str, Any]], 
-                         quality_filter) -> List[Dict[str, Any]]:
-        """Filter by model quality per requirement 10.4."""
-        filtered = []
-        
-        for model in models:
-            is_verified = model.get('verified', False)
-            is_featured = model.get('featured', False)
+            db = OptimizedDatabase('data/civitai.db')
+            cached_count = 0
             
-            if quality_filter.value == 'verified' and is_verified:
-                filtered.append(model)
-            elif quality_filter.value == 'featured' and is_featured:
-                filtered.append(model)
-            elif quality_filter.value == 'verified_featured' and is_verified and is_featured:
-                filtered.append(model)
-            elif quality_filter.value == 'all':
-                filtered.append(model)
-        
-        return filtered
-    
-    def _filter_by_commercial_use(self, models: List[Dict[str, Any]], 
-                                commercial_filter) -> List[Dict[str, Any]]:
-        """Filter by commercial use per requirement 10.5."""
-        if commercial_filter.value == 'all':
-            return models
-        
-        filtered = []
-        for model in models:
-            commercial_allowed = model.get('allowCommercialUse', None)
+            for model in models:
+                try:
+                    # Store model data in database
+                    db.store_model(model)
+                    cached_count += 1
+                except Exception as e:
+                    self.logger.warning(f"Failed to cache model {model.get('id', 'unknown')}: {e}")
             
-            if commercial_filter.value == 'commercial' and commercial_allowed is True:
-                filtered.append(model)
-            elif commercial_filter.value == 'non_commercial' and commercial_allowed is False:
-                filtered.append(model)
-        
-        return filtered
-    
-    def _filter_by_base_model(self, models: List[Dict[str, Any]], 
-                            base_model: str) -> List[Dict[str, Any]]:
-        """Filter by base model per requirement 11.6."""
-        filtered = []
-        base_model_lower = base_model.lower()
-        
-        for model in models:
-            # Check explicit base model
-            model_base = model.get('baseModel', '').lower()
-            detected_base = model.get('detected_base_model', '').lower()
+            print(f"DEBUG: Cached {cached_count}/{len(models)} models to database")
             
-            if base_model_lower in model_base or base_model_lower in detected_base:
-                filtered.append(model)
+        except Exception as e:
+            self.logger.warning(f"Database caching failed: {e}")
+    
+    async def _check_db_cache(self, search_params: AdvancedSearchParams) -> Optional[List[Dict[str, Any]]]:
+        """Check if results are available in database cache with freshness validation."""
+        try:
+            from ...data.optimized_schema import OptimizedDatabase
+            import time
+            
+            db = OptimizedDatabase('data/civitai.db')
+            
+            # Check cache freshness (24 hours)
+            cache_key = self._generate_cache_key(search_params)
+            cache_info = self._get_cache_info(db, cache_key)
+            
+            if cache_info:
+                cache_age_hours = (time.time() - cache_info['timestamp']) / 3600
+                print(f"DEBUG: Cache found, age: {cache_age_hours:.1f} hours")
+                
+                if cache_age_hours > 24:
+                    print("DEBUG: Cache expired (>24h), will refresh from API")
+                    return None
+                elif cache_age_hours > 6 and await self._has_new_models_since(search_params, cache_info['latest_model_id']):
+                    print("DEBUG: New models detected, refreshing cache")
+                    return None
+            
+            # Query database for matching models
+            cached_models = db.search_models(
+                base_model=search_params.base_model,
+                model_types=search_params.model_types,
+                categories=[cat.value for cat in search_params.categories] if search_params.categories else None,
+                limit=search_params.limit
+            )
+            
+            if cached_models and len(cached_models) >= search_params.limit:
+                print(f"DEBUG: Using {len(cached_models)} fresh cached models")
+                return cached_models
+                
+        except Exception as e:
+            self.logger.warning(f"Database cache check failed: {e}")
         
-        return filtered
+        return None
+    
+    def _generate_cache_key(self, search_params: AdvancedSearchParams) -> str:
+        """Generate unique cache key for search parameters."""
+        key_parts = [
+            search_params.base_model or '',
+            ','.join(search_params.model_types or []),
+            ','.join([cat.value for cat in search_params.categories] if search_params.categories else []),
+            ','.join(search_params.tags or [])
+        ]
+        return '|'.join(key_parts)
+    
+    def _get_cache_info(self, db, cache_key: str) -> Optional[Dict]:
+        """Get cache metadata from database."""
+        try:
+            cursor = db.connection.cursor()
+            cursor.execute("""
+                SELECT timestamp, latest_model_id, model_count 
+                FROM search_cache 
+                WHERE cache_key = ? 
+                ORDER BY timestamp DESC 
+                LIMIT 1
+            """, (cache_key,))
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'timestamp': row[0],
+                    'latest_model_id': row[1],
+                    'model_count': row[2]
+                }
+        except Exception as e:
+            self.logger.debug(f"Cache info retrieval failed: {e}")
+        
+        return None
+    
+    async def _has_new_models_since(self, search_params: AdvancedSearchParams, latest_cached_id: str) -> bool:
+        """Check if new models exist since last cache update."""
+        try:
+            # Fetch only the latest model to check for updates
+            api_params = {
+                'limit': 1,
+                'query': search_params.query or '/',
+                'types': search_params.model_types,
+                'category': search_params.categories[0].value if search_params.categories else None,
+                'baseModel': search_params.base_model,
+                'sort': 'Newest'  # Get the most recent
+            }
+            
+            print("DEBUG: Checking for new models (1 API request)")
+            response = await self._execute_api_call(api_params)
+            latest_models = response.get('items', [])
+            
+            if latest_models:
+                latest_api_id = str(latest_models[0].get('id', ''))
+                is_newer = latest_api_id != latest_cached_id
+                print(f"DEBUG: Latest API ID: {latest_api_id}, Cached ID: {latest_cached_id}, New: {is_newer}")
+                return is_newer
+                
+        except Exception as e:
+            self.logger.warning(f"New model check failed: {e}")
+            # If check fails, assume there might be new models (safe side)
+            return True
+        
+        return False
+    
+    def _update_cache_info(self, db, cache_key: str, models: List[Dict[str, Any]]) -> None:
+        """Update cache metadata in database."""
+        try:
+            import time
+            
+            latest_model_id = str(models[0].get('id', '')) if models else ''
+            timestamp = time.time()
+            
+            # Create table if not exists
+            cursor = db.connection.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS search_cache (
+                    cache_key TEXT,
+                    timestamp REAL,
+                    latest_model_id TEXT,
+                    model_count INTEGER,
+                    PRIMARY KEY (cache_key)
+                )
+            """)
+            
+            # Insert or update cache info
+            cursor.execute("""
+                INSERT OR REPLACE INTO search_cache 
+                (cache_key, timestamp, latest_model_id, model_count)
+                VALUES (?, ?, ?, ?)
+            """, (cache_key, timestamp, latest_model_id, len(models)))
+            
+            db.connection.commit()
+            print(f"DEBUG: Updated cache info for key: {cache_key}")
+            
+        except Exception as e:
+            self.logger.warning(f"Cache info update failed: {e}")
+    
+    
+    
     
     async def _execute_api_call(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute API call with error handling."""
+        """Execute API call with error handling and rate limiting."""
+        print(f"DEBUG _execute_api_call: params type: {type(params)}")
+        print(f"DEBUG _execute_api_call: params: {params}")
+        
         if not self.api_client:
             raise ValueError("API client not configured")
         
-        # Add rate limiting and retry logic here
-        response = await self.api_client.search_models(params)
+        # Rate limiting: wait between requests to avoid being banned
+        import time
         
-        # Detect API capabilities if enabled
-        if self.unofficial_api_manager.feature_detection_enabled:
-            self.unofficial_api_manager.detect_api_capabilities(response)
+        # Check if we need to wait (minimum 1 second between requests)
+        current_time = time.time()
+        if hasattr(self, '_last_api_call_time'):
+            time_since_last = current_time - self._last_api_call_time
+            if time_since_last < 1.0:
+                wait_time = 1.0 - time_since_last
+                print(f"DEBUG: Rate limiting - waiting {wait_time:.2f}s")
+                await asyncio.sleep(wait_time)
         
-        return response
+        self._last_api_call_time = time.time()
+        
+        # Retry logic for network errors
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = await self.api_client.get_models(params)
+                
+                # Detect API capabilities if enabled
+                if self.unofficial_api_manager.feature_detection_enabled:
+                    self.unofficial_api_manager.detect_api_capabilities(response)
+                
+                return response
+                
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) * 2  # Exponential backoff: 2s, 4s, 8s
+                    print(f"DEBUG: API call failed (attempt {attempt + 1}/{max_retries}), retrying in {wait_time}s: {e}")
+                    await asyncio.sleep(wait_time)
+                else:
+                    raise
     
     def _update_performance_stats(self, response_time: float) -> None:
         """Update search performance statistics."""
@@ -639,7 +785,8 @@ class LocalVersionFilter:
     
     def filter_by_version_criteria(self, models: List[Dict[str, Any]], 
                                  base_model: Optional[str] = None,
-                                 model_types: Optional[List[str]] = None) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+                                 model_types: Optional[List[str]] = None,
+                                 categories: Optional[List[str]] = None) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
         """
         バージョンレベルでの厳密フィルタリング
         
@@ -647,6 +794,7 @@ class LocalVersionFilter:
             models: CivitAI APIから取得したモデルリスト
             base_model: 必要なベースモデル (例: "Illustrious")
             model_types: 必要なモデルタイプリスト (例: ["LORA"])
+            categories: 必要なカテゴリリスト (例: ["style"])
             
         Returns:
             フィルタリング済みモデルリストと統計情報のタプル
@@ -657,7 +805,8 @@ class LocalVersionFilter:
             'versions_processed': 0,
             'versions_removed': 0,
             'base_model_filtered': 0,
-            'type_filtered': 0
+            'type_filtered': 0,
+            'category_filtered': 0
         }
         
         filtered_models = []
@@ -684,6 +833,24 @@ class LocalVersionFilter:
                         should_include = False
                         self.filter_stats['type_filtered'] += 1
                 
+                # カテゴリフィルタリング（モデル単位でチェック - OR ロジック）
+                if categories and should_include:
+                    model_tags = model.get('tags', [])
+                    # タグの中にカテゴリが含まれているかチェック
+                    model_categories = []
+                    for tag in model_tags:
+                        if isinstance(tag, dict):
+                            tag_name = tag.get('name', '').lower()
+                        else:
+                            tag_name = str(tag).lower()
+                        model_categories.append(tag_name)
+                    
+                    # OR検索: 指定されたカテゴリのいずれかがモデルのタグに含まれているかチェック
+                    category_found = any(cat.lower() in model_categories for cat in categories)
+                    if not category_found:
+                        should_include = False
+                        self.filter_stats['category_filtered'] += 1
+                
                 if should_include:
                     filtered_versions.append(version)
                 else:
@@ -708,5 +875,6 @@ class LocalVersionFilter:
         print(f"  処理されたバージョン: {stats['versions_processed']}")
         print(f"  除外されたバージョン: {stats['versions_removed']}")
         print(f"    ├─ ベースモデル不適合: {stats['base_model_filtered']}")
-        print(f"    └─ タイプ不適合: {stats['type_filtered']}")
+        print(f"    ├─ タイプ不適合: {stats['type_filtered']}")
+        print(f"    └─ カテゴリ不適合: {stats.get('category_filtered', 0)}")
         print(f"  残存バージョン: {stats['versions_processed'] - stats['versions_removed']}")
