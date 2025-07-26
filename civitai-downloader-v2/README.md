@@ -1,277 +1,285 @@
 # CivitAI Downloader v2
 
-A high-performance, enterprise-grade tool for downloading models from CivitAI with advanced features like bulk downloads, metadata management, and security scanning.
+🎯 **エンタープライズグレード AIモデルダウンローダー** - CivitAIから高品質なAIモデルを効率的にダウンロード・管理するための統合CLIツール
 
-## Features
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Status: Production Ready](https://img.shields.io/badge/Status-Production%20Ready-green.svg)]()
 
-### Core Functionality
-- **High-Performance Downloads**: Concurrent downloads with resume capability
-- **Advanced Search**: Complex filtering and search strategies
-- **Security Scanning**: Malware detection and file verification
-- **Database Optimization**: SQLite with PostgreSQL migration path
-- **Monitoring & Logging**: Structured logging with metrics and alerting
-- **Configuration Management**: YAML files with environment variable overrides
+## ✨ 主要機能
 
-### Advanced Features (Phase 4)
-- **Bulk Download System**: Efficient batch processing for large model collections
-- **Performance Optimization**: Adaptive resource management and network optimization
-- **Analytics & Reporting**: Comprehensive usage analytics with interactive reports
+### 🔍 高度な検索システム
+- **AdvancedSearchParams**: 複雑な検索条件とフィルタリング
+- **リアルタイムAPI統合**: CivitAI公式APIとの完全統合
+- **Triple Filtering**: カテゴリ × タグ × モデルタイプによる三重フィルタリング
+- **複数出力フォーマット**: JSON、CSV、テーブル形式での結果出力
 
-## Quick Start
+### ⬇️ 堅牢なダウンロードシステム
+- **非同期ダウンロード**: 高速な並行ダウンロード機能
+- **レジューム機能**: 中断されたダウンロードの自動再開
+- **整合性検証**: SHA256ハッシュによるファイル検証
+- **進捗追跡**: リアルタイムダウンロード進捗表示
 
-### 1. Environment Setup
+### 🛡️ セキュリティ機能
+- **セキュリティスキャン**: ダウンロードファイルの脅威検知
+- **SafeTensors優先**: 安全なファイル形式の自動選択
+- **アクセス制御**: 設定情報の安全な管理とマスキング
 
-Copy the example environment file and configure your API key:
+### 📊 情報管理
+- **詳細モデル情報**: バージョン、ファイル、メタデータの完全表示
+- **設定管理**: YAML設定と環境変数のハイブリッド管理
+- **構造化ログ**: 詳細なログ記録とデバッグ情報
+
+## 🚀 クイックスタート
+
+### 1. 環境設定
 
 ```bash
+# リポジトリのクローン
+git clone <repository-url>
+cd civitai-downloader-v2
+
+# 環境設定ファイルの作成
 cp .env.example .env
 ```
 
-Edit `.env` and set your CivitAI API key:
+### 2. API キーの設定
+
+`.env` ファイルを編集してCivitAI APIキーを設定：
 
 ```bash
 CIVITAI_API_KEY=your_actual_civitai_api_key_here
-```
-
-### 2. Configuration
-
-The system uses environment variables for configuration with the following precedence:
-
-1. Existing environment variables (highest priority)
-2. `.env.local` file (local overrides, not in git)
-3. `.env` file (main configuration)
-4. Default values (lowest priority)
-
-Key configuration options:
-
-```bash
-# API Configuration
-CIVITAI_API_KEY=your_api_key_here
 CIVITAI_BASE_URL=https://civitai.com/api/v1
 CIVITAI_TIMEOUT=30
-
-# Download Configuration
-CIVITAI_CONCURRENT_DOWNLOADS=3
-CIVITAI_CHUNK_SIZE=8192
-
-# Security Configuration
-CIVITAI_VERIFY_SSL=true
-
-# Logging Configuration
-CIVITAI_LOG_LEVEL=INFO
 ```
 
-### 3. Running
+### 3. 依存関係のインストール
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Run tests
-python -m pytest tests/
-
-# Start downloading
-python -m src.main
 ```
 
-## Project Structure
+## 💻 CLI使用方法
 
-```
-├── src/
-│   ├── api/                 # API client and authentication
-│   ├── core/               # Core business logic
-│   │   ├── config/         # Configuration management
-│   │   └── error/          # Error handling
-│   ├── data/               # Data models and database
-│   ├── monitoring/         # Logging and monitoring
-│   └── main.py            # Application entry point
-├── tests/                  # Test suite
-├── docs/                   # Documentation
-├── .env.example           # Environment configuration template
-└── .env                   # Your local configuration (ignored by git)
-```
-
-## Development
-
-### Phase 1: Foundation Systems ✅
-
-- [x] Database optimization with SQLite
-- [x] Structured logging and monitoring
-- [x] Configuration management
-- [x] Error handling framework
-
-### Phase 2: Core Infrastructure ✅
-
-- [x] API client with authentication
-- [x] Data models and validation
-- [x] Web authentication framework
-- [x] Streaming search capabilities
-
-### Phase 3: Core Business Logic ✅
-
-- [x] Search strategy implementation
-- [x] Download manager with concurrency
-- [x] Security scanner integration
-
-### Phase 4: Advanced Features ✅
-
-- [x] Bulk download operations
-- [x] Performance optimization
-- [x] Enhanced metadata management
-- [x] Analytics and reporting
-
-## Environment Variables Reference
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `CIVITAI_API_KEY` | Your CivitAI API key | None | Yes |
-| `CIVITAI_BASE_URL` | API base URL | `https://civitai.com/api/v1` | No |
-| `CIVITAI_TIMEOUT` | API timeout in seconds | `30` | No |
-| `CIVITAI_MAX_RETRIES` | Maximum retry attempts | `3` | No |
-| `CIVITAI_CONCURRENT_DOWNLOADS` | Concurrent download limit | `3` | No |
-| `CIVITAI_CHUNK_SIZE` | Download chunk size in bytes | `8192` | No |
-| `CIVITAI_VERIFY_SSL` | Enable SSL verification | `true` | No |
-| `CIVITAI_LOG_LEVEL` | Logging level | `INFO` | No |
-
-## Testing
+### 🔍 モデル検索
 
 ```bash
-# Run all tests
+# 基本検索
+python -m src.cli.main search "anime character"
+
+# 詳細検索（JSON出力）
+python -m src.cli.main search --limit 10 --format json "LoRA"
+
+# 結果をファイルに保存
+python -m src.cli.main search --output results.json "stable diffusion"
+```
+
+### 📋 モデル情報表示
+
+```bash
+# 基本情報
+python -m src.cli.main info 257749
+
+# バージョン情報付き
+python -m src.cli.main info 257749 --versions
+
+# ファイル情報付き
+python -m src.cli.main info 257749 --versions --files
+```
+
+### ⬇️ ダウンロード
+
+```bash
+# モデルIDでダウンロード
+python -m src.cli.main download 257749
+
+# カスタムディレクトリに保存
+python -m src.cli.main download 257749 --output-dir ./models
+
+# セキュリティスキャン付き
+python -m src.cli.main download 257749 --scan-security
+```
+
+### 🛡️ セキュリティスキャン
+
+```bash
+# ファイルスキャン
+python -m src.cli.main scan ./model.safetensors
+
+# 詳細レポート
+python -m src.cli.main scan ./model.safetensors --detailed
+```
+
+### ⚙️ 設定管理
+
+```bash
+# 設定一覧
+python -m src.cli.main config --list
+
+# 設定値取得
+python -m src.cli.main config --get api.timeout
+
+# 設定値変更
+python -m src.cli.main config --set api.timeout=60
+```
+
+## 📁 プロジェクト構造
+
+```
+civitai-downloader-v2/
+├── src/
+│   ├── cli/                    # CLI インターフェース
+│   │   └── main.py            # メインCLI実装
+│   ├── api/                   # API クライアント
+│   │   ├── client.py          # CivitAI API クライアント
+│   │   ├── auth.py            # 認証管理
+│   │   └── params.py          # パラメータ定義
+│   ├── core/                  # コア機能
+│   │   ├── config/            # 設定管理
+│   │   ├── download/          # ダウンロード管理
+│   │   ├── search/            # 検索エンジン
+│   │   ├── security/          # セキュリティ機能
+│   │   └── bulk/              # バルクダウンロード
+│   ├── data/                  # データ管理
+│   │   └── schema_manager.py  # データベーススキーマ
+│   └── monitoring/            # ログ・監視
+├── tests/                     # テストスイート
+├── reports/                   # レポート出力
+├── .env.example              # 環境設定テンプレート
+└── README.md                 # このファイル
+```
+
+## 🔧 設定オプション
+
+### 環境変数
+
+| 変数名 | 説明 | デフォルト値 | 必須 |
+|--------|------|-------------|------|
+| `CIVITAI_API_KEY` | CivitAI APIキー | なし | ✅ |
+| `CIVITAI_BASE_URL` | API ベースURL | `https://civitai.com/api/v1` | ❌ |
+| `CIVITAI_TIMEOUT` | APIタイムアウト(秒) | `30` | ❌ |
+| `CIVITAI_MAX_RETRIES` | 最大リトライ回数 | `3` | ❌ |
+| `CIVITAI_CONCURRENT_DOWNLOADS` | 並行ダウンロード数 | `3` | ❌ |
+| `CIVITAI_CHUNK_SIZE` | チャンクサイズ(バイト) | `8192` | ❌ |
+| `CIVITAI_VERIFY_SSL` | SSL検証有効化 | `true` | ❌ |
+| `CIVITAI_LOG_LEVEL` | ログレベル | `INFO` | ❌ |
+
+### 検索フィルタオプション
+
+```bash
+# NSFWフィルタ
+--nsfw                    # NSFW コンテンツを含める
+
+# モデルタイプフィルタ  
+--types LORA,Checkpoint   # 特定タイプのみ
+
+# ソート
+--sort "Most Downloaded"  # ダウンロード数順
+
+# 出力制限
+--limit 50               # 結果数制限
+```
+
+## 🧪 テスト
+
+```bash
+# 全テスト実行
 python -m pytest tests/
 
-# Run specific test modules
-python -m pytest tests/unit/test_database_optimization.py
-python -m pytest tests/unit/test_logging_monitoring.py
+# 特定モジュール
+python -m pytest tests/unit/test_search_engine.py
 
-# Run with coverage
+# カバレッジ付き
 python -m pytest tests/ --cov=src --cov-report=html
 ```
 
-## Advanced Usage Examples
+## 🛠️ 開発ステータス
 
-### Bulk Download System
+### ✅ Phase 1-4: 完了済み
+- [x] **基盤システム**: データベース、ログ、設定管理
+- [x] **API統合**: CivitAI API クライアント実装
+- [x] **検索エンジン**: 高度な検索・フィルタリング機能
+- [x] **ダウンロード**: 並行ダウンロード・レジューム機能
+- [x] **セキュリティ**: ファイルスキャン・検証機能
+- [x] **CLI インターフェース**: 完全なコマンドライン操作
+- [x] **バルクダウンロード**: 大量ダウンロード管理
+- [x] **パフォーマンス最適化**: 適応的リソース管理
 
-```python
-from core.bulk import BulkDownloadManager, create_bulk_download_from_search
-from core.search import search_checkpoints
+### 🔄 現在の状況
+すべてのコア機能が実装済みで、本番環境での使用準備完了。全CLIコマンドが正常動作し、リアルAPIデータによる完全統合が実現されています。
 
-# Search for models
-results = search_checkpoints(query="anime character", limit=50)
+## 📝 使用例
 
-# Create bulk download job
-bulk_manager = BulkDownloadManager()
-job_id = bulk_manager.create_bulk_job(
-    search_results=results,
-    name="Anime Character Collection",
-    options={'batch_size': 10, 'priority': 'HIGH'}
-)
+### 基本的なワークフロー
 
-# Monitor progress
-def progress_callback(job_id, progress):
-    print(f"Progress: {progress['downloaded_files']}/{progress['total_files']}")
+```bash
+# 1. アニメ系LoRAを検索
+python -m src.cli.main search --types LORA "anime character" --limit 10
 
-bulk_manager.add_progress_callback(progress_callback)
+# 2. 特定モデルの詳細確認
+python -m src.cli.main info 257749 --versions --files
+
+# 3. 安全にダウンロード
+python -m src.cli.main download 257749 --scan-security --output-dir ./anime_models
+
+# 4. ダウンロードファイルをスキャン
+python -m src.cli.main scan ./anime_models/model.safetensors --detailed
 ```
 
-### Performance Optimization
+### 高度な検索
 
-```python
-from core.performance import create_optimized_download_manager, OptimizationMode
+```bash
+# 複数条件での検索
+python -m src.cli.main search --types "LORA,Checkpoint" --nsfw "realistic portrait" --format json --output results.json
 
-# Create performance-optimized download manager
-manager = create_optimized_download_manager(mode="adaptive")
-
-# Download with automatic optimization
-task_id = manager.create_download_task(file_info)
-await manager.start_download(task_id)
-
-# Check performance report
-report = manager.optimizer.get_performance_report()
-print(f"Network condition: {report['metrics']['network_condition']}")
-print(f"Recommendations: {report['recommendations']}")
+# 設定確認とカスタマイズ
+python -m src.cli.main config --list
+python -m src.cli.main config --set download.concurrent_downloads=5
 ```
 
-### Analytics and Reporting
+## 🔧 トラブルシューティング
 
-```python
-from core.analytics import create_complete_analytics_system, quick_analytics_report
+### よくある問題
 
-# Initialize analytics system
-collector, analyzer, generator = create_complete_analytics_system()
+1. **API エラー 404**: モデルIDが存在しない、または非公開
+2. **ダウンロード失敗**: ネットワーク接続またはアクセス権限の問題
+3. **設定エラー**: `.env`ファイルの設定確認
 
-# Generate quick report for the last 7 days
-report_path = quick_analytics_report(period_days=7, output_format="html")
-print(f"Report generated: {report_path}")
+### デバッグ
 
-# Custom analytics
-end_time = time.time()
-start_time = end_time - (30 * 24 * 3600)  # 30 days
-report = analyzer.generate_report(start_time, end_time)
+```bash
+# 詳細ログ出力
+python -m src.cli.main --verbose search "test"
 
-print(f"Downloads: {report.summary['downloads']['total_downloads']}")
-print(f"Success rate: {report.summary['downloads']['success_rate']:.1f}%")
-print(f"Recommendations: {len(report.recommendations)}")
+# 設定確認
+python -m src.cli.main config --list
 ```
 
-### Example: Complete Workflow
+## 🤝 コントリビューション
 
-```python
-# Complete workflow combining all Phase 4 features
-import asyncio
-from core.search import search_loras
-from core.bulk import BulkDownloadManager
-from core.performance import create_optimized_download_manager
-from core.analytics import get_analytics_collector
+1. リポジトリをフォーク
+2. フィーチャーブランチを作成 (`git checkout -b feature/new-feature`)
+3. 変更をコミット (`git commit -am 'Add new feature'`)
+4. ブランチにプッシュ (`git push origin feature/new-feature`)
+5. プルリクエストを作成
 
-async def advanced_download_workflow():
-    # 1. Initialize analytics
-    collector = get_analytics_collector()
-    
-    # 2. Search for models
-    loras = search_loras(query="style", limit=20)
-    
-    # 3. Create optimized bulk download
-    bulk_manager = BulkDownloadManager()
-    bulk_manager.download_manager = create_optimized_download_manager(mode="adaptive")
-    
-    # 4. Start bulk download with analytics
-    job_id = bulk_manager.create_bulk_job(
-        search_results=loras,
-        name="Style LoRA Collection"
-    )
-    
-    # 5. Wait for completion
-    while True:
-        job = bulk_manager.get_job_status(job_id)
-        if job.status in ["COMPLETED", "FAILED"]:
-            break
-        await asyncio.sleep(5)
-    
-    # 6. Generate analytics report
-    from core.analytics import quick_analytics_report
-    report_path = quick_analytics_report()
-    print(f"Analytics report: {report_path}")
+## 📄 ライセンス
 
-# Run the workflow
-asyncio.run(advanced_download_workflow())
-```
+このプロジェクトはMITライセンスの下で公開されています。詳細は[LICENSE](LICENSE)ファイルを参照してください。
 
-## License
+## 🙏 謝辞
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+- [CivitAI](https://civitai.com/) - 素晴らしいAIモデルプラットフォームの提供
+- Python コミュニティ - 優秀なライブラリとツールの開発
 
-## Contributing
+---
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
+## 🆘 サポート
 
-## Security
+問題が発生した場合は、以下の手順でサポートを受けてください：
 
-- Never commit your `.env` file to git
-- Use strong API keys and rotate them regularly
-- Enable SSL verification in production
-- Review security scanner results before using downloaded models
+1. **ドキュメント確認**: README とヘルプコマンドを確認
+2. **ログ確認**: `--verbose` フラグで詳細ログを取得
+3. **Issue作成**: バグレポートや機能要求をGitHub Issuesに投稿
+
+**Happy Downloading!** 🎉

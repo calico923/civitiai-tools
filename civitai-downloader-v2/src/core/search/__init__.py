@@ -37,7 +37,6 @@ from .advanced_search import (
 
 from .search_engine import (
     AdvancedSearchEngine,
-    TripleFilterEngine,
     SearchResult
 )
 
@@ -79,6 +78,5 @@ __all__ = [
     
     # Search engine
     'AdvancedSearchEngine',
-    'TripleFilterEngine',
     'SearchResult'
 ]

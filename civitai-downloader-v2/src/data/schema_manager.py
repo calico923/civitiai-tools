@@ -87,7 +87,7 @@ class DatabaseSchemaManager:
                 
                 # Run additional setup if provided
                 if schema.setup_func:
-                    schema.setup_func(cursor, additional_config or {})
+                    schema.setup_func(conn)
                 
                 conn.commit()
                 self._initialized_dbs.add(db_key)
@@ -143,6 +143,27 @@ class DatabaseSchemaManager:
                         UNIQUE(id)
                     )
                 """,
+                "categories": """
+                    CREATE TABLE IF NOT EXISTS categories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT UNIQUE NOT NULL,
+                        display_name TEXT NOT NULL,
+                        priority INTEGER NOT NULL DEFAULT 999,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """,
+                "model_categories": """
+                    CREATE TABLE IF NOT EXISTS model_categories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        model_id INTEGER NOT NULL,
+                        category_id INTEGER NOT NULL,
+                        is_primary BOOLEAN DEFAULT FALSE,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE,
+                        FOREIGN KEY (category_id) REFERENCES categories(id),
+                        UNIQUE(model_id, category_id)
+                    )
+                """,
                 "downloads": """
                     CREATE TABLE IF NOT EXISTS downloads (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -177,7 +198,8 @@ class DatabaseSchemaManager:
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 """
-            }
+            },
+            setup_func=self._setup_main_database
         )
         self.register_schema(main_schema)
         
@@ -247,6 +269,66 @@ class DatabaseSchemaManager:
             }
         )
         self.register_schema(uptime_schema)
+    
+    def _setup_main_database(self, conn: sqlite3.Connection) -> None:
+        """メインデータベースの追加設定（インデックス、初期データなど）"""
+        cursor = conn.cursor()
+        
+        # カテゴリの初期データを挿入（優先順位は参考値として保持）
+        category_data = [
+            ('character', 'Character', 1),
+            ('style', 'Style', 2),
+            ('concept', 'Concept', 3),
+            ('background', 'Background', 4),
+            ('poses', 'Poses', 5),
+            ('vehicle', 'Vehicle', 6),
+            ('clothing', 'Clothing', 7),
+            ('action', 'Action', 8),
+            ('animal', 'Animal', 9),
+            ('assets', 'Assets', 10),
+            ('base model', 'Base Model', 11),
+            ('buildings', 'Buildings', 12),
+            ('celebrity', 'Celebrity', 13),
+            ('objects', 'Objects', 14),
+            ('tool', 'Tool', 15),
+            ('body', 'Body', 16),
+            ('outfit', 'Outfit', 17),
+            ('base', 'Base', 18),
+            ('workflow', 'Workflow', 19),
+            ('wildcards', 'Wildcards', 20),
+            ('other', 'Other', 999)
+        ]
+        
+        for name, display_name, priority in category_data:
+            cursor.execute("""
+                INSERT OR IGNORE INTO categories (name, display_name, priority)
+                VALUES (?, ?, ?)
+            """, (name, display_name, priority))
+        
+        # インデックスを作成
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_model_categories_model_id 
+            ON model_categories(model_id)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_model_categories_category_id 
+            ON model_categories(category_id)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_categories_priority 
+            ON categories(priority)
+        """)
+        
+        # 主カテゴリの一意性を保証するインデックス
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_model_primary_category 
+            ON model_categories(model_id) 
+            WHERE is_primary = TRUE
+        """)
+        
+        conn.commit()
         
         # Integrity monitoring schema
         integrity_schema = SchemaDefinition(

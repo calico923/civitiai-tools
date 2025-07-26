@@ -114,6 +114,69 @@ class AdvancedSearchEngine:
         
         return result
     
+    async def _search_with_target(self, search_params: AdvancedSearchParams, 
+                                original_target: int) -> SearchResult:
+        """Internal search method that passes original target to filtering."""
+        # Handle backward compatibility
+        if isinstance(search_params, str):
+            raise ValueError("_search_with_target requires AdvancedSearchParams")
+        
+        return await self._search_internal_with_target(search_params, original_target)
+    
+    async def _search_internal_with_target(self, search_params: AdvancedSearchParams, 
+                                         original_target: int) -> SearchResult:
+        """Internal search with original target for proper filtering."""
+        start_time = time.time()
+        self.search_stats['total_searches'] += 1
+        
+        # Validate parameters
+        validation_errors = search_params.validate()
+        if validation_errors:
+            raise ValueError(f"Invalid search parameters: {validation_errors}")
+        
+        # Attempt search with fallback mechanism
+        try:
+            result = await self._execute_search_with_fallback_target(search_params, original_target)
+            self.search_stats['successful_searches'] += 1
+        except Exception as e:
+            logger.error(f"Search failed: {e}")
+            raise
+        
+        # Update performance statistics
+        response_time = time.time() - start_time
+        self._update_performance_stats(response_time)
+        
+        return result
+    
+    async def _execute_search_with_fallback_target(self, search_params: AdvancedSearchParams, 
+                                                 original_target: int) -> SearchResult:
+        """Execute search with fallback and original target."""
+        fallback_used = None
+        
+        # Try advanced search first
+        try:
+            if self.unofficial_api_manager.features['advanced_sorting'].enabled:
+                result = await self._advanced_search(search_params)
+                self.unofficial_api_manager.record_feature_usage('advanced_sorting', True)
+                return result
+        except Exception as e:
+            logger.warning(f"Advanced search failed: {e}")
+            self.unofficial_api_manager.record_feature_usage('advanced_sorting', False)
+            fallback_used = 'official_search'
+        
+        # Fallback to official search with original target
+        try:
+            result = await self._official_search(search_params, original_target)
+            self.unofficial_api_manager.record_feature_usage('basic_search', True)
+            if fallback_used:
+                result.fallback_used = fallback_used
+                self.search_stats['fallback_used'] += 1
+            return result
+        except Exception as e:
+            logger.error(f"Official search failed: {e}")
+            self.unofficial_api_manager.record_feature_usage('basic_search', False)
+            raise
+    
     async def search_streaming(self, search_params: AdvancedSearchParams, 
                              batch_size: int = 50):
         """
@@ -128,24 +191,35 @@ class AdvancedSearchEngine:
         """
         page = 1
         has_more = True
+        total_yielded = 0
+        original_limit = search_params.limit  # 元の目標数を保持
         
-        while has_more:
-            # Create paginated params
+        while has_more and total_yielded < original_limit:
+            # Create paginated params (exclude page and limit to avoid conflicts)
+            params_dict = search_params.__dict__.copy()
+            params_dict.pop('page', None)
+            params_dict.pop('limit', None)
+            
+            # 残り必要数を計算
+            remaining_needed = original_limit - total_yielded
+            current_batch_size = min(batch_size, remaining_needed)
+            
             batch_params = AdvancedSearchParams(
-                **search_params.__dict__,
+                **params_dict,
                 page=page,
-                limit=min(batch_size, search_params.limit)
+                limit=current_batch_size
             )
             
-            # Get batch
-            result = await self.search(batch_params)
+            # Get batch (pass original target for proper filtering)
+            result = await self._search_with_target(batch_params, original_limit)
             
             # Yield batch if has results
             if result.models:
+                total_yielded += len(result.models)
                 yield result
             
-            # Check if more pages
-            has_more = result.has_next and len(result.models) == batch_size
+            # Check if more pages and not reached limit
+            has_more = result.has_next and len(result.models) == current_batch_size and total_yielded < original_limit
             page += 1
     
     async def _execute_search_with_fallback(self, search_params: AdvancedSearchParams) -> SearchResult:
@@ -224,7 +298,8 @@ class AdvancedSearchEngine:
             }
         )
     
-    async def _official_search(self, search_params: AdvancedSearchParams) -> SearchResult:
+    async def _official_search(self, search_params: AdvancedSearchParams, 
+                             original_target: Optional[int] = None) -> SearchResult:
         """Perform official search using only documented API features."""
         print(f"DEBUG _official_search: search_params type: {type(search_params)}")
         print(f"DEBUG _official_search: search_params: {search_params}")
@@ -311,8 +386,11 @@ class AdvancedSearchEngine:
         
         # Execute API call with appropriate pagination
         all_models = []
-        target_limit = search_params.limit
-        per_page_limit = min(100, max(target_limit, 50))  # API max is 100 per page, fetch at least 50 for filtering
+        # ストリーミング時は元の目標数を使用、通常時は現在のlimitを使用
+        target_limit = original_target if original_target else search_params.limit
+        per_page_limit = min(100, max(search_params.limit, 50))  # API max is 100 per page, fetch at least 50 for filtering
+        
+        print(f"DEBUG: target_limit = {target_limit}, original_target = {original_target}, search_params.limit = {search_params.limit}")
         
         # Use cursor-based pagination for queries, page-based for non-queries
         if has_query:
