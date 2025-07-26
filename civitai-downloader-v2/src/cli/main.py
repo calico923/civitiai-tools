@@ -489,7 +489,17 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                 click.echo(f"\nResults saved to: {output_path}")
         
         except Exception as e:
-            click.echo(f"Error during search: {e}", err=True)
+            # Provide user-friendly error messages
+            error_msg = str(e)
+            if "connection" in error_msg.lower() or "network" in error_msg.lower():
+                click.echo("❌ Network error: Please check your internet connection and try again.", err=True)
+            elif "authentication" in error_msg.lower() or "unauthorized" in error_msg.lower():
+                click.echo("❌ Authentication error: Please check your API credentials.", err=True)
+            elif "rate limit" in error_msg.lower():
+                click.echo("❌ Rate limit exceeded: Please wait a moment before trying again.", err=True)
+            else:
+                click.echo(f"❌ Search error: {e}", err=True)
+            logger.error(f"Search failed: {e}", exc_info=True)
             return
         finally:
             # Close streaming exporters
@@ -618,7 +628,19 @@ def download_command(url_or_id, output_dir, filename, verify, scan_security, no_
                 click.echo(f"❌ Download failed: {result.error_message}", err=True)
         
         except Exception as e:
-            click.echo(f"Download failed: {e}", err=True)
+            # Provide user-friendly error messages for downloads
+            error_msg = str(e)
+            if "connection" in error_msg.lower() or "network" in error_msg.lower():
+                click.echo("❌ Download failed: Network error. Please check your internet connection.", err=True)
+            elif "space" in error_msg.lower() or "disk" in error_msg.lower():
+                click.echo("❌ Download failed: Insufficient disk space.", err=True)
+            elif "permission" in error_msg.lower():
+                click.echo("❌ Download failed: Permission denied. Please check file permissions.", err=True)
+            elif "not found" in error_msg.lower() or "404" in error_msg:
+                click.echo("❌ Download failed: File not found on server.", err=True)
+            else:
+                click.echo(f"❌ Download failed: {e}", err=True)
+            logger.error(f"Download failed: {e}", exc_info=True)
             raise
     
     run_async(run_download())
@@ -1080,7 +1102,17 @@ def bulk_download_command(input_file, output_dir, scan, parallel, retry, force):
             click.echo(f"\nResults saved to: {results_file}")
             
         except Exception as e:
-            click.echo(f"Bulk download failed: {e}", err=True)
+            # Provide user-friendly error messages for bulk downloads
+            error_msg = str(e)
+            if "connection" in error_msg.lower() or "network" in error_msg.lower():
+                click.echo("❌ Bulk download failed: Network error. Please check your internet connection.", err=True)
+            elif "space" in error_msg.lower() or "disk" in error_msg.lower():
+                click.echo("❌ Bulk download failed: Insufficient disk space.", err=True)
+            elif "rate limit" in error_msg.lower():
+                click.echo("❌ Bulk download failed: Rate limit exceeded. Please try again later.", err=True)
+            else:
+                click.echo(f"❌ Bulk download failed: {e}", err=True)
+            logger.error(f"Bulk download failed: {e}", exc_info=True)
             raise
     
     run_async(run_bulk_download())

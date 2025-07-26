@@ -16,6 +16,7 @@ from .advanced_search import (
 )
 from ..security.security_scanner import SecurityScanner
 from ..security.license_manager import LicenseManager
+from ..exceptions import SearchError, APIError, NetworkError
 
 logger = logging.getLogger(__name__)
 
@@ -173,9 +174,14 @@ class AdvancedSearchEngine:
                 self.search_stats['fallback_used'] += 1
             return result
         except Exception as e:
-            logger.error(f"Official search failed: {e}")
-            self.unofficial_api_manager.record_feature_usage('basic_search', False)
-            raise
+            if "connection" in str(e).lower() or "network" in str(e).lower():
+                logger.error(f"Network error in official search: {e}")
+                self.unofficial_api_manager.record_feature_usage('basic_search', False)
+                raise NetworkError(f"Network error during search: {e}")
+            else:
+                logger.error(f"Official search failed: {e}")
+                self.unofficial_api_manager.record_feature_usage('basic_search', False)
+                raise SearchError(f"Search operation failed: {e}")
     
     async def search_streaming(self, search_params: AdvancedSearchParams, 
                              batch_size: int = 50):
@@ -246,9 +252,14 @@ class AdvancedSearchEngine:
                 self.search_stats['fallback_used'] += 1
             return result
         except Exception as e:
-            logger.error(f"Official search failed: {e}")
-            self.unofficial_api_manager.record_feature_usage('basic_search', False)
-            raise
+            if "connection" in str(e).lower() or "network" in str(e).lower():
+                logger.error(f"Network error in official search: {e}")
+                self.unofficial_api_manager.record_feature_usage('basic_search', False)
+                raise NetworkError(f"Network error during search: {e}")
+            else:
+                logger.error(f"Official search failed: {e}")
+                self.unofficial_api_manager.record_feature_usage('basic_search', False)
+                raise SearchError(f"Search operation failed: {e}")
     
     async def _advanced_search(self, search_params: AdvancedSearchParams) -> SearchResult:
         """Perform advanced search using unofficial API features."""
