@@ -71,7 +71,7 @@ async def test_category_search(category_name: str, target_count: int = 200):
                     model_name = model.get('name', 'Unknown')
                     print(f"  {model_count}. {model_name} → {primary_cat} {all_cats}")
         
-        print(f"\n📊 Category distribution:")
+        print("\n📊 Category distribution:")
         for cat, count in sorted(category_counts.items(), key=lambda x: x[1], reverse=True):
             percentage = (count / model_count) * 100
             print(f"  {cat}: {count} ({percentage:.1f}%)")
@@ -112,7 +112,7 @@ async def main():
     await cli_context.initialize()
     
     # Test 1: Style category
-    print(f"\n🎨 Test 1: STYLE category")
+    print("\n🎨 Test 1: STYLE category")
     style_result = await test_category_search('style', 200)
     
     # Short break between tests
@@ -120,7 +120,7 @@ async def main():
     await asyncio.sleep(3)
     
     # Test 2: Concept category  
-    print(f"\n💡 Test 2: CONCEPT category")
+    print("\n💡 Test 2: CONCEPT category")
     concept_result = await test_category_search('concept', 200)
     
     # Summary comparison

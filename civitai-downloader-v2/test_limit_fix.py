@@ -40,7 +40,7 @@ async def test_limit_fix():
             search_params, batch_size=5  # Small batch size for testing
         )
         
-        print(f"\n✅ Search completed!")
+        print("\n✅ Search completed!")
         print(f"📊 Raw models: {summary['raw_models']}")
         print(f"🔍 Filtered models: {summary['filtered_models']}")
         print(f"⚙️  Processed models: {summary['processed_models']}")
@@ -55,7 +55,7 @@ async def test_limit_fix():
             print(f"❌ FAILED: Got only {actual} models (< {expected} target)")
             
         # Show first few models
-        print(f"\n📋 First few models:")
+        print("\n📋 First few models:")
         count = 0
         async for batch in streaming_engine.get_processed_models_stream(session_id):
             for model in batch:

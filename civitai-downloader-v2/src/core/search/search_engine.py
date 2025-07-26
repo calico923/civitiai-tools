@@ -16,7 +16,7 @@ from .advanced_search import (
 )
 from ..security.security_scanner import SecurityScanner
 from ..security.license_manager import LicenseManager
-from ..exceptions import SearchError, APIError, NetworkError
+from ..exceptions import SearchError, NetworkError
 
 logger = logging.getLogger(__name__)
 

@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 # CLI imports
 try:
     from src.cli.main import cli, search_command, download_command, config_command
-    from src.core.search.search_engine import AdvancedSearchEngine
     from src.core.download.manager import DownloadManager
     from src.core.config.manager import ConfigManager
 except ImportError:

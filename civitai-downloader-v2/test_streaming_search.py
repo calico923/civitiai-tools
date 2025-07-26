@@ -35,12 +35,12 @@ async def test_streaming_search():
             search_params, batch_size=5
         )
         
-        print(f"\n✅ Search completed successfully!")
+        print("\n✅ Search completed successfully!")
         print(f"Session ID: {session_id}")
         print(f"Summary: {summary}")
         
         # Test stream reading
-        print(f"\n📖 Reading processed models...")
+        print("\n📖 Reading processed models...")
         count = 0
         async for batch in streaming_engine.get_processed_models_stream(session_id):
             for model in batch:
@@ -56,7 +56,7 @@ async def test_streaming_search():
             if count >= 5:
                 break
         
-        print(f"\n🧹 Cleaning up session...")
+        print("\n🧹 Cleaning up session...")
         streaming_engine.cleanup_session(session_id, keep_final=False)
         print("✅ Cleanup completed!")
         
