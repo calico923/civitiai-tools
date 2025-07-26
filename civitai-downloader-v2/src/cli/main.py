@@ -13,12 +13,13 @@ from typing import List, Optional
 import logging
 
 # Import core components
-from ..core.search.advanced_search import AdvancedSearchEngine
+from ..core.search.search_engine import AdvancedSearchEngine
+from ..core.search.advanced_search import AdvancedSearchParams, NSFWFilter
 from ..core.download.manager import DownloadManager
-from ..core.config.manager import ConfigManager
+from ..core.config.system_config import SystemConfig as ConfigManager
 from ..core.security.scanner import SecurityScanner
 from ..data.database import DatabaseManager
-from ..api.client import CivitAIClient
+from ..api.client import CivitaiAPIClient as CivitAIClient
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -41,34 +42,33 @@ class CLIContext:
         try:
             # Initialize configuration
             self.config_manager = ConfigManager(config_path)
-            await self.config_manager.load_config()
+            # SystemConfig auto-loads config in __init__, no need to call load_config()
             
             # Initialize database
             db_path = self.config_manager.get('database.path', 'data/civitai.db')
-            self.db_manager = DatabaseManager(db_path)
-            await self.db_manager.initialize()
+            self.db_manager = DatabaseManager(Path(db_path))
+            # Check if initialize method exists before calling
+            if hasattr(self.db_manager, 'initialize'):
+                await self.db_manager.initialize()
             
             # Initialize API client
-            api_config = self.config_manager.get_section('api')
+            api_base_url = self.config_manager.get('api.base_url', 'https://civitai.com/api/v1')
+            api_key = self.config_manager.get('api.api_key', None)
             self.client = CivitAIClient(
-                base_url=api_config.get('base_url', 'https://civitai.com/api'),
-                api_key=api_config.get('api_key')
+                base_url=api_base_url,
+                api_key=api_key
             )
             
             # Initialize components
             self.search_engine = AdvancedSearchEngine(
-                client=self.client,
-                db_manager=self.db_manager
+                api_client=self.client
             )
             
-            download_dir = self.config_manager.get('download.base_directory', 'downloads')
             self.download_manager = DownloadManager(
-                client=self.client,
-                download_dir=Path(download_dir),
-                db_manager=self.db_manager
+                config=self.config_manager
             )
             
-            self.security_scanner = SecurityScanner()
+            self.security_scanner = SecurityScanner(config=self.config_manager)
             
         except Exception as e:
             click.echo(f"Error initializing CLI: {e}", err=True)
@@ -114,59 +114,361 @@ def cli(ctx, config, verbose):
 @click.option('--sort', default='Most Downloaded', help='Sort order')
 @click.option('--limit', default=20, help='Number of results to show')
 @click.option('--output', '-o', help='Save results to JSON file')
+@click.option('--categories', multiple=True, help='Model categories (character, style, concept, etc.)')
+@click.option('--tags', multiple=True, help='Search tags')
+@click.option('--base-model', help='Base model to filter by (e.g., Illustrious, SDXL 1.0, Pony)')
 @click.option('--format', 'output_format', 
-              type=click.Choice(['table', 'json', 'simple']), 
-              default='table', help='Output format')
-def search_command(query, nsfw, types, sort, limit, output, output_format):
+              type=click.Choice(['json', 'csv']), 
+              help='Output format (default: from config)')
+def search_command(query, nsfw, types, sort, limit, output, output_format, categories, tags, base_model):
     """Search for models on CivitAI."""
     
     async def run_search():
         try:
-            # Build filters
-            filters = {
-                'nsfw': nsfw,
-                'sort': sort,
-                'limit': limit
-            }
+            # Use config for default output format
+            nonlocal output_format, base_model
+            if not output_format:
+                output_format = cli_context.config_manager.get('reports.default_format', 'json')
             
-            if types:
-                filters['types'] = list(types)
+            # Import enums for categories
+            from ..core.search.advanced_search import AdvancedSearchParams, NSFWFilter, ModelCategory, SortOption
             
-            # Perform search
-            click.echo(f"Searching for: {query}")
-            if types:
-                click.echo(f"Types: {', '.join(types)}")
-            if nsfw:
+            # Capture parent function parameters
+            search_query = query
+            search_nsfw = nsfw
+            search_types = types
+            search_sort = sort
+            search_limit = limit
+            search_output = output
+            search_output_format = output_format
+            search_categories = categories
+            search_tags = tags
+            search_base_model = base_model
+            
+            # Convert categories to ModelCategory enums
+            category_enums = []
+            if search_categories:
+                for cat in search_categories:
+                    try:
+                        category_enums.append(ModelCategory(cat.lower()))
+                    except ValueError:
+                        click.echo(f"Warning: Unknown category '{cat}'", err=True)
+            
+            # Convert sort to SortOption enum
+            sort_option = None
+            if search_sort:
+                try:
+                    sort_option = SortOption(search_sort)
+                except ValueError:
+                    click.echo(f"Warning: Unknown sort option '{search_sort}', using default", err=True)
+            
+            # Build AdvancedSearchParams
+            tags_list = list(search_tags) if search_tags else []
+            search_params = AdvancedSearchParams(
+                query=search_query if search_query else None,
+                model_types=list(search_types) if search_types else [],
+                categories=category_enums,
+                tags=tags_list,
+                base_model=search_base_model,
+                nsfw_filter=NSFWFilter.INCLUDE_ALL if search_nsfw else NSFWFilter.SFW_ONLY,
+                sort_option=sort_option,
+                limit=search_limit
+            )
+            
+            # Show search info
+            click.echo(f"Searching for: {search_query or 'all models'}")
+            if search_types:
+                click.echo(f"Types: {', '.join(search_types)}")
+            if search_categories:
+                click.echo(f"Categories: {', '.join(search_categories)}")
+            if search_tags:
+                click.echo(f"Tags: {', '.join(search_tags)}")
+            if search_base_model:
+                click.echo(f"Base model: {search_base_model}")
+            if search_nsfw:
                 click.echo("Including NSFW content")
             
-            results = await cli_context.search_engine.search(query, filters)
+            # Perform search with pagination to get required number of results
+            all_results = []
+            current_page = 1
+            cursor = None
             
-            if not results:
+            while len(all_results) < search_limit:
+                # Update search params for current page/cursor
+                current_search_params = search_params
+                if cursor:
+                    # Use cursor for next page
+                    current_search_params.page = None
+                    # TODO: Add cursor support to AdvancedSearchParams
+                else:
+                    current_search_params.page = current_page
+                
+                search_result = await cli_context.search_engine.search(current_search_params)
+                
+                if not search_result or not search_result.models:
+                    break
+                
+                # Add results to our collection
+                page_results = search_result.models
+                all_results.extend(page_results)
+                
+                click.echo(f"Page {current_page}: Retrieved {len(page_results)} items (Total: {len(all_results)})")
+                
+                # Check if we have enough results or if there are no more pages
+                if len(page_results) == 0 or len(all_results) >= search_limit:
+                    break
+                
+                # Check for next page indicators
+                has_next = getattr(search_result, 'has_next', False)
+                cursor = getattr(search_result, 'next_cursor', None)
+                
+                if not has_next and not cursor:
+                    break
+                
+                current_page += 1
+            
+            # Trim to exact limit if we got more than requested
+            if len(all_results) > search_limit:
+                all_results = all_results[:search_limit]
+            
+            if not all_results:
                 click.echo("No results found.")
                 return
+                
+            results = all_results
+            click.echo(f"Final results: {len(results)} items")
+            
+            # Store models in database
+            for model in results:
+                try:
+                    cli_context.db_manager.store_model(model)
+                except Exception as e:
+                    logger.warning(f"Failed to store model {model.get('id', 'unknown')} in database: {e}")
+            
+            # Record search history
+            try:
+                import datetime
+                search_data = {
+                    'query': search_query or '',
+                    'filters': json.dumps({
+                        'types': list(search_types) if search_types else [],
+                        'categories': list(search_categories) if search_categories else [],
+                        'tags': list(search_tags) if search_tags else [],
+                        'nsfw': search_nsfw,
+                        'sort': search_sort,
+                        'limit': search_limit
+                    }),
+                    'results_count': len(results),
+                    'searched_at': datetime.datetime.now().isoformat()
+                }
+                
+                with cli_context.db_manager.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        INSERT INTO search_history (query, filters, results_count, searched_at)
+                        VALUES (?, ?, ?, ?)
+                    """, (
+                        search_data['query'],
+                        search_data['filters'],
+                        search_data['results_count'],
+                        search_data['searched_at']
+                    ))
+                    conn.commit()
+            except Exception as e:
+                logger.warning(f"Failed to record search history: {e}")
             
             # Format output
-            if output_format == 'json':
-                output_data = json.dumps(results, indent=2)
-                click.echo(output_data)
-            elif output_format == 'simple':
+            if search_output_format == 'json':
+                # Convert SearchResult objects to dictionaries for JSON serialization
+                json_results = []
                 for result in results:
-                    click.echo(f"{result['id']}: {result['name']}")
-            else:  # table format
-                click.echo(f"\nFound {len(results)} results:\n")
-                click.echo(f"{'ID':<8} {'Name':<40} {'Type':<15} {'Downloads':<10}")
-                click.echo("-" * 80)
+                    if hasattr(result, 'to_dict'):
+                        json_results.append(result.to_dict())
+                    else:
+                        # If it's already a dict, use it directly
+                        json_results.append(dict(result) if hasattr(result, 'items') else result)
                 
+                output_data = json.dumps(json_results, indent=2, default=str)
+                click.echo(output_data)
+            elif search_output_format == 'csv':
+                import csv
+                import io
+                
+                # CSV header
+                click.echo("ID,Name,Type,Base_Model,Tags,Trained_Words,Downloads,Favorites,NSFW,Commercial_Use,Creator,Model_URL,Download_URL")
+                
+                # CSV data
                 for result in results:
-                    name = result['name'][:37] + "..." if len(result['name']) > 40 else result['name']
-                    downloads = result.get('stats', {}).get('downloadCount', 0)
-                    click.echo(f"{result['id']:<8} {name:<40} {result['type']:<15} {downloads:<10}")
+                    # Extract data safely
+                    model_id = result.get('id', 'N/A')
+                    name = result.get('name', 'Unknown').replace(',', ';')  # Replace commas to avoid CSV issues
+                    model_type = result.get('type', 'Unknown')
+                    
+                    # Base model from first version
+                    base_model = 'Unknown'
+                    model_versions = result.get('modelVersions', [])
+                    if model_versions and len(model_versions) > 0:
+                        base_model = model_versions[0].get('baseModel', 'Unknown')
+                    
+                    # Tags
+                    result_tags = result.get('tags', [])
+                    if isinstance(result_tags, list):
+                        if result_tags and isinstance(result_tags[0], dict):
+                            tag_names = [tag.get('name', '') for tag in result_tags]
+                        else:
+                            tag_names = [str(tag) for tag in result_tags]
+                        tags_str = ';'.join(tag_names)  # Use semicolon to avoid CSV issues
+                    else:
+                        tags_str = 'None'
+                    
+                    # Trained words from all versions
+                    trained_words_set = set()
+                    for version in model_versions:
+                        if isinstance(version, dict):
+                            version_words = version.get('trainedWords', [])
+                            if isinstance(version_words, list):
+                                trained_words_set.update(version_words)
+                    trained_words_str = ';'.join(trained_words_set) if trained_words_set else 'None'
+                    
+                    # Stats
+                    stats = result.get('stats', {})
+                    downloads = stats.get('downloadCount', 0) if isinstance(stats, dict) else 0
+                    favorites = stats.get('favoriteCount', 0) if isinstance(stats, dict) else 0
+                    
+                    # NSFW
+                    nsfw_status = 'Yes' if result.get('nsfw', False) else 'No'
+                    
+                    # Commercial Use
+                    allow_commercial = result.get('allowCommercialUse', [])
+                    if isinstance(allow_commercial, list):
+                        commercial_use = ';'.join(allow_commercial) if allow_commercial else 'None'
+                    else:
+                        commercial_use = 'None'
+                    
+                    # Creator
+                    creator = result.get('creator', {})
+                    creator_name = creator.get('username', 'Unknown') if isinstance(creator, dict) else 'Unknown'
+                    
+                    # URLs
+                    model_url = f"https://civitai.com/models/{model_id}"
+                    download_url = 'N/A'
+                    if model_versions and len(model_versions) > 0:
+                        version_id = model_versions[0].get('id')
+                        if version_id:
+                            download_url = f"https://civitai.com/api/download/models/{version_id}"
+                    
+                    # Output CSV row using proper CSV writer
+                    output_buffer = io.StringIO()
+                    csv_writer = csv.writer(output_buffer)
+                    csv_writer.writerow([
+                        model_id, name, model_type, base_model, tags_str, trained_words_str,
+                        downloads, favorites, nsfw_status, commercial_use, creator_name, model_url, download_url
+                    ])
+                    csv_line = output_buffer.getvalue().strip()
+                    click.echo(csv_line)
+            else:
+                # This should never happen with the current choices
+                click.echo("Invalid output format", err=True)
             
             # Save to file if requested
-            if output:
-                with open(output, 'w') as f:
-                    json.dump(results, f, indent=2)
-                click.echo(f"\nResults saved to: {output}")
+            if search_output:
+                # Determine output directory
+                if not Path(search_output).is_absolute():
+                    # If relative path, use reports directory from config
+                    reports_dir = Path(cli_context.config_manager.get('reports.dir', 'reports'))
+                    reports_dir.mkdir(parents=True, exist_ok=True)
+                    output_path = reports_dir / search_output
+                else:
+                    output_path = Path(search_output)
+                
+                if search_output_format == 'csv':
+                    import csv
+                    with open(output_path, 'w', newline='', encoding='utf-8') as f:
+                        csv_writer = csv.writer(f)
+                        # Write header
+                        csv_writer.writerow([
+                            'ID', 'Name', 'Type', 'Base_Model', 'Tags', 'Trained_Words',
+                            'Downloads', 'Favorites', 'NSFW', 'Commercial_Use', 'Creator', 'Model_URL', 'Download_URL'
+                        ])
+                        
+                        # Write data rows
+                        for result in results:
+                            # Extract data (same logic as console output)
+                            model_id = result.get('id', 'N/A')
+                            name = result.get('name', 'Unknown')
+                            model_type = result.get('type', 'Unknown')
+                            
+                            # Base model from first version
+                            base_model = 'Unknown'
+                            model_versions = result.get('modelVersions', [])
+                            if model_versions and len(model_versions) > 0:
+                                base_model = model_versions[0].get('baseModel', 'Unknown')
+                            
+                            # Tags
+                            result_tags = result.get('tags', [])
+                            if isinstance(result_tags, list):
+                                if result_tags and isinstance(result_tags[0], dict):
+                                    tag_names = [tag.get('name', '') for tag in result_tags]
+                                else:
+                                    tag_names = [str(tag) for tag in result_tags]
+                                tags_str = ';'.join(tag_names)
+                            else:
+                                tags_str = 'None'
+                            
+                            # Trained words from all versions
+                            trained_words_set = set()
+                            for version in model_versions:
+                                if isinstance(version, dict):
+                                    version_words = version.get('trainedWords', [])
+                                    if isinstance(version_words, list):
+                                        trained_words_set.update(version_words)
+                            trained_words_str = ';'.join(trained_words_set) if trained_words_set else 'None'
+                            
+                            # Stats
+                            stats = result.get('stats', {})
+                            downloads = stats.get('downloadCount', 0) if isinstance(stats, dict) else 0
+                            favorites = stats.get('favoriteCount', 0) if isinstance(stats, dict) else 0
+                            
+                            # NSFW
+                            nsfw_status = 'Yes' if result.get('nsfw', False) else 'No'
+                            
+                            # Commercial Use
+                            allow_commercial = result.get('allowCommercialUse', [])
+                            if isinstance(allow_commercial, list):
+                                commercial_use = ';'.join(allow_commercial) if allow_commercial else 'None'
+                            else:
+                                commercial_use = 'None'
+                            
+                            # Creator
+                            creator = result.get('creator', {})
+                            creator_name = creator.get('username', 'Unknown') if isinstance(creator, dict) else 'Unknown'
+                            
+                            # URLs
+                            model_url = f"https://civitai.com/models/{model_id}"
+                            download_url = 'N/A'
+                            if model_versions and len(model_versions) > 0:
+                                version_id = model_versions[0].get('id')
+                                if version_id:
+                                    download_url = f"https://civitai.com/api/download/models/{version_id}"
+                            
+                            # Write row
+                            csv_writer.writerow([
+                                model_id, name, model_type, base_model, tags_str, trained_words_str,
+                                downloads, favorites, nsfw_status, commercial_use, creator_name, model_url, download_url
+                            ])
+                else:
+                    # JSON format
+                    json_results = []
+                    for result in results:
+                        if hasattr(result, 'to_dict'):
+                            json_results.append(result.to_dict())
+                        else:
+                            # If it's already a dict, use it directly
+                            json_results.append(dict(result) if hasattr(result, 'items') else result)
+                    
+                    with open(output_path, 'w') as f:
+                        json.dump(json_results, f, indent=2, default=str)
+                click.echo(f"\nResults saved to: {output_path}")
         
         except Exception as e:
             click.echo(f"Error during search: {e}", err=True)
@@ -174,563 +476,39 @@ def search_command(query, nsfw, types, sort, limit, output, output_format):
         finally:
             # Close streaming exporters
             try:
+                # Initialize variables if they don't exist
+                csv_exporter = locals().get('csv_exporter')
+                json_exporter = locals().get('json_exporter')
+                
                 if csv_exporter:
                     csv_exporter.close()
-                    click.echo(f"Streaming CSV export completed: {output}")
+                    click.echo(f"Streaming CSV export completed: {search_output}")
                 if json_exporter:
                     json_exporter.close()
-                    click.echo(f"Streaming JSON export completed: {output}")
+                    click.echo(f"Streaming JSON export completed: {search_output}")
             except Exception as e:
                 logger.warning(f"Error closing export files: {e}")
         
-        if not results:
-            click.echo("No results found.")
-            return
-        
-        # Apply local version-level filtering if needed
-        original_count = len(results)
-        if base_model or parsed_types:
-            from ..core.search.search_engine import LocalVersionFilter
-            
-            local_filter = LocalVersionFilter()
-            results, filter_stats = local_filter.filter_by_version_criteria(
-                results, 
-                base_model=base_model,
-                model_types=parsed_types
-            )
-            
-            # Show filtering statistics if filtering was applied
-            if filter_stats['models_removed'] > 0 or filter_stats['versions_removed'] > 0:
-                local_filter.print_filter_statistics(filter_stats)
-                print(f"\n🔄 フィルタリング適用: {original_count} → {len(results)} モデル")
-                
-                # Create new filtered file if output was specified
-                if output and len(results) > 0:
-                    # Generate new filename with "_filtered" suffix
-                    output_path = Path(output)
-                    filtered_filename = output_path.stem + "_filtered" + output_path.suffix
-                    filtered_output = output_path.parent / filtered_filename
-                    
-                    if output_format == 'json':
-                        with open(filtered_output, 'w', encoding='utf-8') as f:
-                            json.dump(results, f, indent=2, ensure_ascii=False)
-                        click.echo(f"Filtered results saved to: {filtered_output}")
-                    elif output_format == 'csv':
-                        import csv
-                        with open(filtered_output, 'w', encoding='utf-8', newline='') as f:
-                            csv_writer = csv.writer(f)
-                            csv_writer.writerow(["ID", "Name", "Base Model", "Type", "Tags", "Trained Words", "Likes", "Downloads", "Images", "Updates", "NSFW", "Image", "Rent", "RentCivit", "Sell", "Model URL", "Download URL"])
-                            
-                            for result in results:
-                                result_id = result.get("id", 0)
-                                name = result.get("name", "Unknown")
-                                result_type = result.get("type", "Unknown")
-                                
-                                # Extract tags
-                                model_tags = result.get("tags", [])
-                                tags_list = []
-                                for tag in model_tags:
-                                    if isinstance(tag, dict):
-                                        tags_list.append(tag.get("name", ""))
-                                    else:
-                                        tags_list.append(str(tag))
-                                tags_str = ", ".join(tags_list)
-                                
-                                # Extract trained words from all versions
-                                trained_words_set = set()
-                                for version in result.get("modelVersions", []):
-                                    if isinstance(version, dict):
-                                        version_words = version.get("trainedWords", [])
-                                        if isinstance(version_words, list):
-                                            trained_words_set.update(version_words)
-                                trained_words_str = ", ".join(sorted(trained_words_set))
-                                
-                                # Get statistics
-                                stats = result.get("stats", {})
-                                likes = stats.get("thumbsUpCount", 0) if isinstance(stats, dict) else 0
-                                downloads = stats.get("downloadCount", 0) if isinstance(stats, dict) else 0
-                                
-                                # Other fields
-                                nsfw_status = "NSFW" if result.get("nsfw", False) else "SFW"
-                                model_url = f"https://civitai.com/models/{result_id}"
-                                
-                                # Get first matching version for base model and download URL
-                                base_model_display = "Mixed"
-                                download_url = ""
-                                model_versions = result.get("modelVersions", [])
-                                if model_versions and isinstance(model_versions[0], dict):
-                                    first_version = model_versions[0]
-                                    base_model_display = first_version.get("baseModel", "Unknown")
-                                    version_id = first_version.get("id")
-                                    if version_id:
-                                        download_url = f"https://civitai.com/api/download/models/{version_id}"
-                                
-                                csv_writer.writerow([result_id, name, base_model_display, result_type, tags_str, trained_words_str, likes, downloads, 0, 0, nsfw_status, "Yes", "No", "No", "No", model_url, download_url])
-                        
-                        click.echo(f"Filtered CSV results saved to: {filtered_output}")
-                elif output and len(results) == 0:
-                    click.echo("No models passed the filtering criteria. No filtered file created.")
-        
-        # Format output
-        if output_format == 'json':
-            # Convert results to dicts if they are objects
-            results_dict = [res.dict() if hasattr(res, 'dict') else res for res in results]
-            output_data = json.dumps(results_dict, indent=2)
-            click.echo(output_data)
-        elif output_format == 'bulk-json':
-            # Format for bulk download compatibility
-            bulk_items = []
-            for result in results:
-                result_dict = result.dict() if hasattr(result, 'dict') else result
-                
-                # Extract basic model info
-                model_item = {
-                    "id": result_dict.get("id"),
-                    "name": result_dict.get("name"),
-                    "type": result_dict.get("type"),
-                    "description": result_dict.get("description"),
-                    "allowCommercialUse": result_dict.get("allowCommercialUse"),
-                    "allowDerivatives": result_dict.get("allowDerivatives"),
-                    "allowNoCredit": result_dict.get("allowNoCredit"),
-                    "allowDifferentLicense": result_dict.get("allowDifferentLicense"),
-                    "nsfw": result_dict.get("nsfw"),
-                    "tags": result_dict.get("tags"),
-                    "stats": result_dict.get("stats"),
-                    "creator": result_dict.get("creator"),
-                    "modelVersions": result_dict.get("modelVersions")
-                }
-                
-                # Add base model filtering info if used
-                if base_model:
-                    model_versions = result_dict.get("modelVersions", [])
-                    for version in model_versions:
-                        if isinstance(version, dict) and version.get("baseModel", "").lower() == base_model.lower():
-                            model_item["filtered_version_id"] = version.get("id")
-                            model_item["filtered_version_name"] = version.get("name")
-                            model_item["filtered_base_model"] = version.get("baseModel")
-                            break
-                
-                bulk_items.append(model_item)
-            
-            output_data = json.dumps(bulk_items, indent=2)
-            click.echo(output_data)
-        elif output_format == 'ids':
-            for result in results:
-                # Handle dict format from API
-                result_id = result.get("id", "N/A")
-                result_name = result.get("name", "Unknown")
-                click.echo(f"{result_id}: {result_name}")
-        else:  # table format (CSV)
-            click.echo(f"\nFound {len(results)} results:\n")
-            
-            # Different format for version display mode
-            if show_versions and base_model:
-                click.echo("Model ID,Model Name,Version ID,Version Name,Base Model,Type,Downloads,NSFW,Download URL")
-                
-                for result in results:
-                    model_id = result.get("id", 0)
-                    model_name = result.get("name", "Unknown")
-                    model_type = result.get("type", "Unknown")
-                    model_versions = result.get("modelVersions", [])
-                    
-                    # Filter and show only matching versions
-                    for version in model_versions:
-                        if isinstance(version, dict):
-                            version_base = version.get("baseModel", "")
-                            if version_base.lower() == base_model.lower():
-                                version_id = version.get("id", "N/A")
-                                version_name = version.get("name", "Unknown")
-                                version_stats = version.get("stats", {})
-                                downloads = version_stats.get("downloadCount", 0) if isinstance(version_stats, dict) else 0
-                                
-                                # Get NSFW status from version or model
-                                nsfw_status = "NSFW" if (version.get("nsfw", False) or result.get("nsfw", False)) else "SFW"
-                                
-                                # Get download URL for this specific version
-                                download_url = f"https://civitai.com/api/download/models/{version_id}"
-                                
-                                # CSV format output using proper CSV writer
-                                output_buffer = io.StringIO()
-                                csv_writer = csv.writer(output_buffer)
-                                csv_writer.writerow([model_id, model_name, version_id, version_name, version_base, model_type, downloads, nsfw_status, download_url])
-                                csv_line = output_buffer.getvalue().strip()
-                                click.echo(csv_line)
-            else:
-                # Original table format
-                click.echo("ID,Name,Base Model,Type,Tags,Trained Words,Likes,Downloads,Images,Updates,NSFW,Image,Rent,RentCivit,Sell,Model URL,Download URL")
-            
-            for result in results:
-                # Handle dict format from API
-                result_name = result.get("name", "Unknown")
-                name = result_name  # Don't truncate name for CSV output
-                result_id = result.get("id", 0)
-                result_type = result.get("type", "Unknown")
-                stats = result.get("stats", {})
-                
-                # Get statistics
-                downloads = stats.get("downloadCount", 0) if isinstance(stats, dict) else 0
-                likes = stats.get("thumbsUpCount", 0) if isinstance(stats, dict) else 0
-                images = stats.get("imageCount", 0) if isinstance(stats, dict) else 0
-                
-                # Get base model information
-                model_versions = result.get("modelVersions", [])
-                base_models = []
-                updates_count = len(model_versions) if isinstance(model_versions, list) else 0
-                
-                if isinstance(model_versions, list) and model_versions:
-                    # Get base models from first version
-                    version = model_versions[0]
-                    if isinstance(version, dict):
-                        base_models = version.get("baseModel", []) or version.get("baseModels", [])
-                
-                if isinstance(base_models, list) and base_models:
-                    base_model_str = ", ".join(base_models)  # Show all base models
-                elif isinstance(base_models, str):
-                    base_model_str = base_models
-                else:
-                    base_model_str = "N/A"
-                base_model_display = base_model_str  # Don't truncate base model for CSV
-                
-                # Get NSFW status
-                nsfw_status = "NSFW" if result.get("nsfw", False) else "SFW"
-                
-                # Get commercial use permissions (4 types: Image, Rent, RentCivit, Sell)
-                allow_commercial = result.get("allowCommercialUse", [])
-                if not isinstance(allow_commercial, list):
-                    allow_commercial = []
-                
-                # Convert to binary format (1/0)
-                image_allowed = 1 if "Image" in allow_commercial else 0
-                rent_allowed = 1 if "Rent" in allow_commercial else 0
-                rent_civit_allowed = 1 if "RentCivit" in allow_commercial else 0
-                sell_allowed = 1 if "Sell" in allow_commercial else 0
-                
-                # Format numbers for display
-                downloads_display = f"{downloads//1000}k" if downloads >= 1000 else str(downloads)
-                likes_display = f"{likes//1000}k" if likes >= 1000 else str(likes)
-                images_display = f"{images//1000}k" if images >= 1000 else str(images)
-                
-                # Get tags (all tags registered for the model)
-                tags_list = result.get("tags", [])
-                if isinstance(tags_list, list):
-                    tags_str = ", ".join(tags_list)  # Show all tags for CSV
-                else:
-                    tags_str = "N/A"
-                
-                # Generate URLs
-                model_url = f"https://civitai.com/models/{result_id}"
-                
-                # Get download URL from first model version
-                download_url = "N/A"
-                model_versions = result.get("modelVersions", [])
-                if isinstance(model_versions, list) and model_versions:
-                    first_version = model_versions[0]
-                    if isinstance(first_version, dict):
-                        version_id = first_version.get("id")
-                        if version_id:
-                            download_url = f"https://civitai.com/api/download/models/{version_id}"
-                
-                # CSV format output using proper CSV writer
-                output_buffer = io.StringIO()
-                csv_writer = csv.writer(output_buffer)
-                csv_writer.writerow([result_id, name, base_model_display, result_type, tags_str, likes, downloads, images, updates_count, nsfw_status, image_allowed, rent_allowed, rent_civit_allowed, sell_allowed, model_url, download_url])
-                csv_line = output_buffer.getvalue().strip()
-                click.echo(csv_line)
-        
-        # Save to file if requested (only if not already done via streaming export)
-        if output and not (csv_exporter or json_exporter):
-            # Determine output path - if no directory specified, use default download directory
-            output_path = Path(output)
-            # If path doesn't contain directory separator, put in reports directory
-            if '/' not in str(output) and '\\' not in str(output):
-                from ..core.config.env_loader import get_env_var
-                default_dir = get_env_var('CIVITAI_DOWNLOAD_DIR', './downloads')
-                reports_dir = Path(default_dir) / 'reports'
-                output_path = reports_dir / output_path
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Create intermediate file for raw data (always)
-            intermediate_path = output_path.parent / f"{output_path.stem}_raw{output_path.suffix}"
-            
-            # Apply client-side filtering if category or tags or base model specified
-            filtered_results = results
-            if category or tags or base_model:
-                filtered_results = []
-                for result in results:
-                    result_tags = result.get("tags", [])
-                    if not isinstance(result_tags, list):
-                        continue
-                    
-                    # Check category filter (categories are also in tags)
-                    category_match = True
-                    if parsed_categories:
-                        category_match = any(cat.value in result_tags for cat in parsed_categories)
-                    
-                    # Check tags filter
-                    tags_match = True
-                    if parsed_tags:
-                        tags_match = all(tag in result_tags for tag in parsed_tags)
-                    
-                    # Check base model filter (version-level filtering)
-                    version_match = True
-                    if base_model:
-                        # Check if any version matches the specified base model
-                        model_versions = result.get("modelVersions", [])
-                        version_match = False
-                        for version in model_versions:
-                            if isinstance(version, dict):
-                                version_base = version.get("baseModel", "")
-                                if version_base.lower() == base_model.lower():
-                                    version_match = True
-                                    break
-                    
-                    # Include only if all filters pass
-                    if category_match and tags_match and version_match:
-                        filtered_results.append(result)
-                
-                click.echo(f"\nFiltered: {len(results)} results -> {len(filtered_results)} results")
-                if parsed_categories:
-                    click.echo(f"Category filter: {', '.join([cat.value for cat in parsed_categories])}")
-                if parsed_tags:
-                    click.echo(f"Tags filter: {', '.join(parsed_tags)}")
-                if base_model:
-                    click.echo(f"Base model filter: {base_model}")
-            
-            with open(output_path, 'w', encoding='utf-8') as f:
-                if output_format == 'ids':
-                    # Save in ids format (ID: Name)
-                    for result in filtered_results:
-                        result_id = result.get("id", "N/A")
-                        result_name = result.get("name", "Unknown")
-                        f.write(f"{result_id}: {result_name}\n")
-                elif output_format == 'csv':
-                    # Save raw data to intermediate file if filtering
-                    if category or tags or base_model:
-                        with open(intermediate_path, 'w', encoding='utf-8') as raw_f:
-                            raw_f.write("ID,Name,Base Model,Type,Tags,Trained Words,Likes,Downloads,Images,Updates,NSFW,Image,Rent,RentCivit,Sell,Model URL,Download URL\n")
-                            csv_writer_raw = csv.writer(raw_f)
-                            for result in results:
-                                result_name = result.get("name", "Unknown")
-                                name = result_name  # Don't truncate name for CSV file output
-                                result_id = result.get("id", 0)
-                                result_type = result.get("type", "Unknown")
-                                stats = result.get("stats", {})
-                                
-                                # Get statistics
-                                downloads = stats.get("downloadCount", 0) if isinstance(stats, dict) else 0
-                                likes = stats.get("thumbsUpCount", 0) if isinstance(stats, dict) else 0
-                                images = stats.get("imageCount", 0) if isinstance(stats, dict) else 0
-                                
-                                # Get base model information
-                                model_versions = result.get("modelVersions", [])
-                                base_models = []
-                                updates_count = len(model_versions) if isinstance(model_versions, list) else 0
-                                
-                                if isinstance(model_versions, list) and model_versions:
-                                    # Get base models from first version
-                                    version = model_versions[0]
-                                    if isinstance(version, dict):
-                                        base_models = version.get("baseModel", []) or version.get("baseModels", [])
-                                
-                                if isinstance(base_models, list) and base_models:
-                                    base_model_str = ", ".join(base_models)  # Show all base models
-                                elif isinstance(base_models, str):
-                                    base_model_str = base_models
-                                else:
-                                    base_model_str = "N/A"
-                                base_model_display = base_model_str  # Don't truncate base model for CSV file
-                                
-                                # Get NSFW status
-                                nsfw_status = "NSFW" if result.get("nsfw", False) else "SFW"
-                                
-                                # Get tags (all tags registered for the model)
-                                tags_list = result.get("tags", [])
-                                if isinstance(tags_list, list):
-                                    tags_str = ", ".join(tags_list)  # Show all tags for CSV file
-                                else:
-                                    tags_str = "N/A"
-                                
-                                # Get trained words (trigger words for LoRA models)
-                                trained_words_list = result.get("trainedWords", [])
-                                if isinstance(trained_words_list, list) and trained_words_list:
-                                    trained_words_str = ", ".join(trained_words_list)
-                                else:
-                                    trained_words_str = "N/A"
-                                
-                                # Get commercial use permissions (4 types: Image, Rent, RentCivit, Sell)
-                                allow_commercial = result.get("allowCommercialUse", [])
-                                if not isinstance(allow_commercial, list):
-                                    allow_commercial = []
-                                
-                                # Convert to binary format (1/0)
-                                image_allowed = 1 if "Image" in allow_commercial else 0
-                                rent_allowed = 1 if "Rent" in allow_commercial else 0
-                                rent_civit_allowed = 1 if "RentCivit" in allow_commercial else 0
-                                sell_allowed = 1 if "Sell" in allow_commercial else 0
-                                
-                                # Generate URLs for raw data
-                                model_url = f"https://civitai.com/models/{result_id}"
-                                
-                                # Get download URL from first model version
-                                download_url = "N/A"
-                                model_versions = result.get("modelVersions", [])
-                                if isinstance(model_versions, list) and model_versions:
-                                    first_version = model_versions[0]
-                                    if isinstance(first_version, dict):
-                                        version_id = first_version.get("id")
-                                        if version_id:
-                                            download_url = f"https://civitai.com/api/download/models/{version_id}"
-                                
-                                csv_writer_raw.writerow([result_id, name, base_model_display, result_type, tags_str, trained_words_str, likes, downloads, images, updates_count, nsfw_status, image_allowed, rent_allowed, rent_civit_allowed, sell_allowed, model_url, download_url])
-                    
-                    # Save filtered data to main file
-                    if show_versions and base_model:
-                        # Version display mode
-                        f.write("Model ID,Model Name,Version ID,Version Name,Base Model,Type,Downloads,NSFW,Download URL\n")
-                    else:
-                        # Regular mode
-                        f.write("ID,Name,Base Model,Type,Tags,Trained Words,Likes,Downloads,Images,Updates,NSFW,Image,Rent,RentCivit,Sell,Model URL,Download URL\n")
-                    for result in filtered_results:
-                        if show_versions and base_model:
-                            # Version display mode - output each matching version
-                            model_id = result.get("id", 0)
-                            model_name = result.get("name", "Unknown")
-                            model_type = result.get("type", "Unknown")
-                            model_versions = result.get("modelVersions", [])
-                            
-                            # Filter and show only matching versions
-                            for version in model_versions:
-                                if isinstance(version, dict):
-                                    version_base = version.get("baseModel", "")
-                                    if version_base.lower() == base_model.lower():
-                                        version_id = version.get("id", "N/A")
-                                        version_name = version.get("name", "Unknown")
-                                        version_stats = version.get("stats", {})
-                                        downloads = version_stats.get("downloadCount", 0) if isinstance(version_stats, dict) else 0
-                                        
-                                        # Get NSFW status from version or model
-                                        nsfw_status = "NSFW" if (version.get("nsfw", False) or result.get("nsfw", False)) else "SFW"
-                                        
-                                        # Get download URL for this specific version
-                                        download_url = f"https://civitai.com/api/download/models/{version_id}"
-                                        
-                                        # CSV format output using proper CSV writer
-                                        csv_writer = csv.writer(f)
-                                        csv_writer.writerow([model_id, model_name, version_id, version_name, version_base, model_type, downloads, nsfw_status, download_url])
-                        else:
-                            # Regular mode
-                            result_name = result.get("name", "Unknown")
-                            name = result_name  # Don't truncate name for CSV file output
-                            result_id = result.get("id", 0)
-                            result_type = result.get("type", "Unknown")
-                            stats = result.get("stats", {})
-                            
-                            # Get statistics
-                            downloads = stats.get("downloadCount", 0) if isinstance(stats, dict) else 0
-                            likes = stats.get("thumbsUpCount", 0) if isinstance(stats, dict) else 0
-                            images = stats.get("imageCount", 0) if isinstance(stats, dict) else 0
-                            
-                            # Get base model information
-                            model_versions = result.get("modelVersions", [])
-                            base_models = []
-                            updates_count = len(model_versions) if isinstance(model_versions, list) else 0
-                            
-                            if isinstance(model_versions, list) and model_versions:
-                                # Get base models from first version
-                                version = model_versions[0]
-                                if isinstance(version, dict):
-                                    base_models = version.get("baseModel", []) or version.get("baseModels", [])
-                            
-                            if isinstance(base_models, list) and base_models:
-                                base_model_str = ", ".join(base_models)  # Show all base models
-                            elif isinstance(base_models, str):
-                                base_model_str = base_models
-                            else:
-                                base_model_str = "N/A"
-                            base_model_display = base_model_str  # Don't truncate base model for CSV file
-                            
-                            # Get NSFW status
-                            nsfw_status = "NSFW" if result.get("nsfw", False) else "SFW"
-                            
-                            # Get commercial use permissions (4 types: Image, Rent, RentCivit, Sell)
-                            allow_commercial = result.get("allowCommercialUse", [])
-                            if not isinstance(allow_commercial, list):
-                                allow_commercial = []
-                            
-                            # Convert to binary format (1/0)
-                            image_allowed = 1 if "Image" in allow_commercial else 0
-                            rent_allowed = 1 if "Rent" in allow_commercial else 0
-                            rent_civit_allowed = 1 if "RentCivit" in allow_commercial else 0
-                            sell_allowed = 1 if "Sell" in allow_commercial else 0
-                            
-                            # Get tags (all tags registered for the model)
-                            tags_list = result.get("tags", [])
-                            if isinstance(tags_list, list):
-                                tags_str = ", ".join(tags_list)  # Show all tags for CSV file
-                            else:
-                                tags_str = "N/A"
-                            
-                            # Get trained words (trigger words for LoRA models)
-                            trained_words_list = result.get("trainedWords", [])
-                            if isinstance(trained_words_list, list) and trained_words_list:
-                                trained_words_str = ", ".join(trained_words_list)
-                            else:
-                                trained_words_str = "N/A"
-                            
-                            # Generate URLs for filtered data
-                            model_url = f"https://civitai.com/models/{result_id}"
-                            
-                            # Get download URL from first model version
-                            download_url = "N/A"
-                            model_versions = result.get("modelVersions", [])
-                            if isinstance(model_versions, list) and model_versions:
-                                first_version = model_versions[0]
-                                if isinstance(first_version, dict):
-                                    version_id = first_version.get("id")
-                                    if version_id:
-                                        download_url = f"https://civitai.com/api/download/models/{version_id}"
-                            
-                            # CSV format output using proper CSV writer
-                            csv_writer = csv.writer(f)
-                            csv_writer.writerow([result_id, name, base_model_display, result_type, tags_str, trained_words_str, likes, downloads, images, updates_count, nsfw_status, image_allowed, rent_allowed, rent_civit_allowed, sell_allowed, model_url, download_url])
-                else:  # json format (default for file output)
-                    # Save raw data to intermediate file if filtering
-                    if category or tags or base_model:
-                        with open(intermediate_path, 'w', encoding='utf-8') as raw_f:
-                            raw_results_dict = [res.dict() if hasattr(res, 'dict') else res for res in results]
-                            json.dump(raw_results_dict, raw_f, indent=2, ensure_ascii=False)
-                    
-                    # Save filtered data to main file with cleaned descriptions
-                    filtered_results_dict = [res.dict() if hasattr(res, 'dict') else res for res in filtered_results]
-                    # Clean HTML from description fields
-                    cleaned_results = []
-                    for result in filtered_results_dict:
-                        if isinstance(result, dict):
-                            cleaned_result = HTMLCleaner.clean_model_description(result.copy())
-                            cleaned_results.append(cleaned_result)
-                        else:
-                            cleaned_results.append(result)
-                    json.dump(cleaned_results, f, indent=2, ensure_ascii=False)
-            
-            click.echo(f"\nResults saved to: {output_path} (format: {output_format})")
-            if category or tags:
-                click.echo(f"Raw data saved to: {intermediate_path}")
     
     run_async(run_search())
 
 
 @cli.command('download')
 @click.argument('url_or_id')
-@click.option('--output-dir', '-d', help='Download directory')
+@click.option('--output-dir', '-d', help='Download directory (default: from config)')
 @click.option('--filename', '-f', help='Custom filename')
 @click.option('--verify', is_flag=True, help='Verify file integrity after download')
 @click.option('--scan-security', is_flag=True, help='Scan file for security threats')
 @click.option('--no-progress', is_flag=True, help='Disable progress bar')
-def download_command(url_or_id, output_dir, filename, verify, scan_security, no_progress):
+@click.option('--force', is_flag=True, help='Force download even if already downloaded')
+def download_command(url_or_id, output_dir, filename, verify, scan_security, no_progress, force):
     """Download a model by URL or ID."""
     
     async def run_download():
         try:
+            # Use config for default output directory
+            if not output_dir:
+                output_dir = cli_context.config_manager.get('download.dir', 'downloads')
             # Determine if input is URL or ID
             if url_or_id.startswith('http'):
                 download_url = url_or_id
@@ -740,6 +518,12 @@ def download_command(url_or_id, output_dir, filename, verify, scan_security, no_
                 try:
                     model_id = int(url_or_id)
                     click.echo(f"Looking up model ID: {model_id}")
+                    
+                    # Check if already downloaded (unless forced)
+                    if not force and cli_context.db_manager.is_downloaded(model_id):
+                        click.echo(f"⏭️  Model {model_id} already downloaded, use --force to override")
+                        return
+                    
                     # This would require API call to get download URL
                     download_url = f"https://civitai.com/api/download/models/{model_id}"
                 except ValueError:
@@ -772,6 +556,24 @@ def download_command(url_or_id, output_dir, filename, verify, scan_security, no_
             
             if result.success:
                 click.echo(f"✅ Download completed: {result.file_path}")
+                
+                # Record download in database
+                try:
+                    import datetime
+                    download_data = {
+                        'model_id': model_id,
+                        'file_id': None,  # Would need to extract from result if available
+                        'file_name': result.file_path.name if hasattr(result.file_path, 'name') else filename,
+                        'file_path': str(result.file_path),
+                        'download_url': download_url,
+                        'file_size': getattr(result, 'file_size', None),
+                        'hash_sha256': getattr(result, 'hash_sha256', None),
+                        'status': 'completed',
+                        'downloaded_at': datetime.datetime.now().isoformat()
+                    }
+                    cli_context.db_manager.record_download(download_data)
+                except Exception as e:
+                    logger.warning(f"Failed to record download in database: {e}")
                 
                 # Verify if requested
                 if verify:
@@ -832,7 +634,7 @@ def config_command(set_option, get_option, list_all, edit):
         
         elif list_all:
             click.echo("Configuration settings:")
-            config_data = cli_context.config_manager.get_all()
+            config_data = cli_context.config_manager.to_dict(mask_sensitive=True)
             
             def print_config(data, prefix=""):
                 for key, value in data.items():
@@ -869,40 +671,141 @@ def info_command(model_id, versions, files):
         try:
             click.echo(f"Getting information for model ID: {model_id}")
             
-            # Mock model info (in real implementation, would call API)
-            model_info = {
-                'id': model_id,
-                'name': f'Model {model_id}',
-                'description': 'Sample model description',
-                'type': 'Checkpoint',
-                'nsfw': False,
-                'tags': ['anime', 'character'],
-                'stats': {
-                    'downloadCount': 1234,
-                    'favoriteCount': 56,
-                    'commentCount': 78
-                }
-            }
+            # Get model info from API
+            try:
+                # Use the API client to get model details
+                api_params = {'limit': 1}  # Only get one model
+                response = await cli_context.client.get_models(api_params)
+                
+                # Search for specific model ID
+                models = response.get('items', [])
+                model_info = None
+                
+                # If we found models, look for our specific ID
+                if models:
+                    for model in models:
+                        if model.get('id') == model_id:
+                            model_info = model
+                            break
+                
+                # If not found in general search, try search by query
+                if not model_info:
+                    # Try to search with model ID as query
+                    api_params = {'query': str(model_id), 'limit': 20}
+                    response = await cli_context.client.get_models(api_params)
+                    models = response.get('items', [])
+                    
+                    for model in models:
+                        if model.get('id') == model_id:
+                            model_info = model
+                            break
+                
+                if not model_info:
+                    click.echo(f"❌ Model {model_id} not found", err=True)
+                    return
+                
+                # Store model in database
+                try:
+                    cli_context.db_manager.store_model(model_info)
+                except Exception as e:
+                    logger.warning(f"Failed to store model {model_id} in database: {e}")
+                    
+            except Exception as e:
+                click.echo(f"❌ Error fetching model info: {e}", err=True)
+                return
             
             # Display basic info
             click.echo(f"\n📋 Model Information:")
-            click.echo(f"  Name: {model_info['name']}")
-            click.echo(f"  Type: {model_info['type']}")
-            click.echo(f"  NSFW: {'Yes' if model_info['nsfw'] else 'No'}")
-            click.echo(f"  Tags: {', '.join(model_info['tags'])}")
-            click.echo(f"  Downloads: {model_info['stats']['downloadCount']}")
-            click.echo(f"  Favorites: {model_info['stats']['favoriteCount']}")
+            click.echo(f"  Name: {model_info.get('name', 'Unknown')}")
+            click.echo(f"  Type: {model_info.get('type', 'Unknown')}")
+            click.echo(f"  NSFW: {'Yes' if model_info.get('nsfw', False) else 'No'}")
+            
+            # Handle tags safely
+            tags = model_info.get('tags', [])
+            if isinstance(tags, list):
+                if tags and isinstance(tags[0], dict):
+                    tag_names = [tag.get('name', '') for tag in tags]
+                    click.echo(f"  Tags: {', '.join(tag_names)}")
+                elif tags:
+                    click.echo(f"  Tags: {', '.join(map(str, tags))}")
+                else:
+                    click.echo(f"  Tags: None")
+            else:
+                click.echo(f"  Tags: {tags}")
+            
+            # Handle stats safely
+            stats = model_info.get('stats', {})
+            if isinstance(stats, dict):
+                downloads = stats.get('downloadCount', 0)
+                favorites = stats.get('favoriteCount', 0)
+                click.echo(f"  Downloads: {downloads:,}")
+                click.echo(f"  Favorites: {favorites:,}")
+            else:
+                click.echo(f"  Downloads: Unknown")
+                click.echo(f"  Favorites: Unknown")
+            
+            # Display description if available
+            description = model_info.get('description', '')
+            if description:
+                # Truncate long descriptions
+                if len(description) > 200:
+                    description = description[:200] + "..."
+                click.echo(f"  Description: {description}")
             
             if versions:
                 click.echo(f"\n📦 Versions:")
-                click.echo("  v1.0 - Latest version")
-                click.echo("  v0.9 - Previous version")
+                model_versions = model_info.get('modelVersions', [])
+                if model_versions:
+                    for i, version in enumerate(model_versions):
+                        version_name = version.get('name', 'Unknown')
+                        version_id = version.get('id', 'N/A')
+                        base_model = version.get('baseModel', 'Unknown')
+                        created_at = version.get('createdAt', 'Unknown')
+                        if created_at != 'Unknown':
+                            # Parse date if it's in ISO format
+                            try:
+                                from datetime import datetime
+                                parsed_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                                created_at = parsed_date.strftime('%Y-%m-%d')
+                            except:
+                                pass
+                        latest = " (Latest)" if i == 0 else ""
+                        click.echo(f"  {version_name}{latest}")
+                        click.echo(f"    ID: {version_id}")
+                        click.echo(f"    Base Model: {base_model}")
+                        click.echo(f"    Created: {created_at}")
+                        click.echo("")
+                else:
+                    click.echo("  No versions available")
             
             if files:
                 click.echo(f"\n📁 Files:")
-                click.echo("  model.safetensors (2.1 GB)")
-                click.echo("  model.ckpt (4.2 GB)")
-                click.echo("  preview.png (1.2 MB)")
+                model_versions = model_info.get('modelVersions', [])
+                if model_versions:
+                    for version in model_versions:
+                        version_files = version.get('files', [])
+                        if version_files:
+                            click.echo(f"  📦 {version.get('name', 'Unknown')} files:")
+                            for file_info in version_files:
+                                file_name = file_info.get('name', 'Unknown')
+                                file_size = file_info.get('sizeKB', 0)
+                                file_type = file_info.get('type', 'Unknown')
+                                # Convert KB to human readable
+                                if file_size > 1024*1024:
+                                    size_display = f"{file_size/(1024*1024):.1f} GB"
+                                elif file_size > 1024:
+                                    size_display = f"{file_size/1024:.1f} MB"
+                                else:
+                                    size_display = f"{file_size} KB"
+                                
+                                # Add file format indicator
+                                format_icon = "🟢" if file_name.endswith('.safetensors') else "🟡"
+                                click.echo(f"    {format_icon} {file_name} ({size_display}, {file_type})")
+                            click.echo("")
+                        else:
+                            click.echo(f"  📦 {version.get('name', 'Unknown')}: No files")
+                else:
+                    click.echo("  No files available")
         
         except Exception as e:
             click.echo(f"Failed to get model info: {e}", err=True)
@@ -954,6 +857,214 @@ def scan_command(file_path, detailed):
             raise
     
     run_async(run_scan())
+
+
+@cli.command('bulk-download')
+@click.argument('input_file', type=click.Path(exists=True))
+@click.option('--output-dir', '-o', 
+              help='Output directory for downloads (default: from config)')
+@click.option('--scan/--no-scan', 
+              default=True, 
+              help='Enable/disable security scanning')
+@click.option('--parallel', '-p', 
+              default=3, 
+              type=click.IntRange(1, 10),
+              help='Number of parallel downloads (1-10)')
+@click.option('--retry', '-r', 
+              default=3, 
+              type=click.IntRange(0, 5),
+              help='Number of retry attempts (0-5)')
+@click.option('--force', is_flag=True, help='Force download even if already downloaded')
+def bulk_download_command(input_file, output_dir, scan, parallel, retry, force):
+    """Download multiple models from a JSON or CSV file.
+    
+    The input file should contain model IDs in one of these formats:
+    
+    JSON format:
+    {"models": [{"id": 123}, {"id": 456}]} or
+    [123, 456, 789]
+    
+    CSV format:
+    id,name
+    123,Model1
+    456,Model2
+    
+    Example:
+        civitai bulk-download models.json
+        civitai bulk-download models.csv --output-dir ./my_models
+    """
+    
+    async def run_bulk_download():
+        import json
+        import csv
+        from pathlib import Path
+        import asyncio
+        
+        try:
+            # Use config for default output directory
+            nonlocal output_dir
+            if not output_dir:
+                output_dir = cli_context.config_manager.get('download.dir', 'downloads')
+            
+            # Parse input file
+            model_ids = []
+            input_path = Path(input_file)
+            
+            if input_path.suffix.lower() == '.json':
+                with open(input_path, 'r') as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        # Simple list of IDs
+                        model_ids = [int(id) for id in data]
+                    elif isinstance(data, dict) and 'models' in data:
+                        # Structured format
+                        model_ids = [int(m.get('id', m)) for m in data['models'] if m]
+                    else:
+                        click.echo("Invalid JSON format. Expected list or {\"models\": [...]}", err=True)
+                        return
+                        
+            elif input_path.suffix.lower() == '.csv':
+                with open(input_path, 'r', newline='', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        if 'id' in row:
+                            try:
+                                model_ids.append(int(row['id']))
+                            except ValueError:
+                                click.echo(f"Invalid ID: {row['id']}", err=True)
+                                
+            else:
+                click.echo("Unsupported file format. Please use JSON or CSV.", err=True)
+                return
+            
+            if not model_ids:
+                click.echo("No valid model IDs found in the input file.", err=True)
+                return
+                
+            # Remove duplicates while preserving order
+            model_ids = list(dict.fromkeys(model_ids))
+            
+            click.echo(f"Found {len(model_ids)} unique models to download")
+            click.echo(f"Output directory: {output_dir}")
+            click.echo(f"Parallel downloads: {parallel}")
+            click.echo(f"Security scanning: {'enabled' if scan else 'disabled'}")
+            click.echo("")
+            
+            # Create output directory
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            
+            # Track results
+            successful = []
+            failed = []
+            
+            # Create semaphore for parallel downloads
+            semaphore = asyncio.Semaphore(parallel)
+            
+            async def download_with_semaphore(model_id):
+                async with semaphore:
+                    try:
+                        click.echo(f"[{model_id}] Starting download...")
+                        
+                        # Check if already downloaded (unless forced)
+                        if not force and cli_context.db_manager.is_downloaded(model_id, None):
+                            click.echo(f"[{model_id}] ⏭️  Already downloaded, skipping...")
+                            successful.append({
+                                'id': model_id,
+                                'name': f'model_{model_id}',
+                                'path': 'already_downloaded'
+                            })
+                            return
+                        
+                        # Get model info first
+                        model_info = await cli_context.client.get_model(model_id)
+                        if not model_info:
+                            raise Exception("Model not found")
+                            
+                        model_name = model_info.get('name', f'model_{model_id}')
+                        click.echo(f"[{model_id}] Model: {model_name}")
+                        
+                        # Download the model
+                        result = await cli_context.download_manager.download_model(
+                            model_id=model_id,
+                            version_id=None,  # Latest version
+                            output_dir=output_dir,
+                            scan_files=scan
+                        )
+                        
+                        if result:
+                            successful.append({
+                                'id': model_id,
+                                'name': model_name,
+                                'path': str(result)
+                            })
+                            click.echo(f"[{model_id}] ✓ Download complete: {result}")
+                            
+                            # Store model and download info in database
+                            try:
+                                # Store model info
+                                cli_context.db_manager.store_model(model_info)
+                                
+                                # Record download
+                                import datetime
+                                download_data = {
+                                    'model_id': model_id,
+                                    'file_id': None,
+                                    'file_name': Path(str(result)).name if result else None,
+                                    'file_path': str(result),
+                                    'download_url': None,  # Would need to extract from result
+                                    'file_size': None,  # Would need to extract from result
+                                    'hash_sha256': None,  # Would need to extract from result
+                                    'status': 'completed',
+                                    'downloaded_at': datetime.datetime.now().isoformat()
+                                }
+                                cli_context.db_manager.record_download(download_data)
+                            except Exception as db_e:
+                                logger.warning(f"Failed to record model {model_id} in database: {db_e}")
+                        else:
+                            raise Exception("Download failed")
+                            
+                    except Exception as e:
+                        failed.append({
+                            'id': model_id,
+                            'error': str(e)
+                        })
+                        click.echo(f"[{model_id}] ✗ Failed: {e}", err=True)
+            
+            # Download all models
+            tasks = [download_with_semaphore(model_id) for model_id in model_ids]
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Summary
+            click.echo("\n" + "="*60)
+            click.echo("BULK DOWNLOAD SUMMARY")
+            click.echo("="*60)
+            click.echo(f"Total models: {len(model_ids)}")
+            click.echo(f"Successful: {len(successful)}")
+            click.echo(f"Failed: {len(failed)}")
+            
+            # Save results to reports directory
+            reports_dir_path = cli_context.config_manager.get('reports.dir', 'reports')
+            reports_dir = Path(reports_dir_path)
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            results_file = reports_dir / "bulk_download_results.json"
+            with open(results_file, 'w') as f:
+                json.dump({
+                    'summary': {
+                        'total': len(model_ids),
+                        'successful': len(successful),
+                        'failed': len(failed)
+                    },
+                    'successful': successful,
+                    'failed': failed
+                }, f, indent=2)
+            
+            click.echo(f"\nResults saved to: {results_file}")
+            
+        except Exception as e:
+            click.echo(f"Bulk download failed: {e}", err=True)
+            raise
+    
+    run_async(run_bulk_download())
 
 
 @cli.command('version')
