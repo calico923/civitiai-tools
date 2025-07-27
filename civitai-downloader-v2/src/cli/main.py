@@ -19,6 +19,7 @@ from ..core.download.manager import DownloadManager
 from ..core.config.system_config import SystemConfig as ConfigManager
 from ..core.security.scanner import SecurityScanner
 from ..data.database import DatabaseManager
+from ..data.model_storage import ModelStorage
 from ..api.client import CivitaiAPIClient as CivitAIClient
 
 # Setup logging
@@ -36,6 +37,7 @@ class CLIContext:
         self.search_engine = None
         self.download_manager = None
         self.security_scanner = None
+        self.model_storage = None
     
     async def initialize(self, config_path: Optional[str] = None):
         """Initialize CLI components."""
@@ -69,6 +71,9 @@ class CLIContext:
             )
             
             self.security_scanner = SecurityScanner(config=self.config_manager)
+            
+            # Initialize model storage
+            self.model_storage = ModelStorage(Path(db_path))
             
         except Exception as e:
             click.echo(f"Error initializing CLI: {e}", err=True)
@@ -489,7 +494,17 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                 click.echo(f"\nResults saved to: {output_path}")
         
         except Exception as e:
-            click.echo(f"Error during search: {e}", err=True)
+            # Provide user-friendly error messages
+            error_msg = str(e)
+            if "connection" in error_msg.lower() or "network" in error_msg.lower():
+                click.echo("❌ Network error: Please check your internet connection and try again.", err=True)
+            elif "authentication" in error_msg.lower() or "unauthorized" in error_msg.lower():
+                click.echo("❌ Authentication error: Please check your API credentials.", err=True)
+            elif "rate limit" in error_msg.lower():
+                click.echo("❌ Rate limit exceeded: Please wait a moment before trying again.", err=True)
+            else:
+                click.echo(f"❌ Search error: {e}", err=True)
+            logger.error(f"Search failed: {e}", exc_info=True)
             return
         finally:
             # Close streaming exporters
@@ -618,7 +633,19 @@ def download_command(url_or_id, output_dir, filename, verify, scan_security, no_
                 click.echo(f"❌ Download failed: {result.error_message}", err=True)
         
         except Exception as e:
-            click.echo(f"Download failed: {e}", err=True)
+            # Provide user-friendly error messages for downloads
+            error_msg = str(e)
+            if "connection" in error_msg.lower() or "network" in error_msg.lower():
+                click.echo("❌ Download failed: Network error. Please check your internet connection.", err=True)
+            elif "space" in error_msg.lower() or "disk" in error_msg.lower():
+                click.echo("❌ Download failed: Insufficient disk space.", err=True)
+            elif "permission" in error_msg.lower():
+                click.echo("❌ Download failed: Permission denied. Please check file permissions.", err=True)
+            elif "not found" in error_msg.lower() or "404" in error_msg:
+                click.echo("❌ Download failed: File not found on server.", err=True)
+            else:
+                click.echo(f"❌ Download failed: {e}", err=True)
+            logger.error(f"Download failed: {e}", exc_info=True)
             raise
     
     run_async(run_download())
@@ -1080,10 +1107,186 @@ def bulk_download_command(input_file, output_dir, scan, parallel, retry, force):
             click.echo(f"\nResults saved to: {results_file}")
             
         except Exception as e:
-            click.echo(f"Bulk download failed: {e}", err=True)
+            # Provide user-friendly error messages for bulk downloads
+            error_msg = str(e)
+            if "connection" in error_msg.lower() or "network" in error_msg.lower():
+                click.echo("❌ Bulk download failed: Network error. Please check your internet connection.", err=True)
+            elif "space" in error_msg.lower() or "disk" in error_msg.lower():
+                click.echo("❌ Bulk download failed: Insufficient disk space.", err=True)
+            elif "rate limit" in error_msg.lower():
+                click.echo("❌ Bulk download failed: Rate limit exceeded. Please try again later.", err=True)
+            else:
+                click.echo(f"❌ Bulk download failed: {e}", err=True)
+            logger.error(f"Bulk download failed: {e}", exc_info=True)
             raise
     
     run_async(run_bulk_download())
+
+
+@cli.command('save-to-db')
+@click.argument('jsonl_path', type=click.Path(exists=True, path_type=Path))
+@click.option('--verbose', '-v', is_flag=True, help='Show detailed progress')
+def save_to_db_command(jsonl_path, verbose):
+    """Save models from processed JSONL file to database."""
+    
+    async def run_save_to_db():
+        try:
+            cli_context = CLIContext()
+            await cli_context.initialize()
+            
+            if verbose:
+                logging.getLogger().setLevel(logging.DEBUG)
+                click.echo(f"Saving models from {jsonl_path} to database...")
+            
+            # Save models to database
+            saved_count, skipped_count = cli_context.model_storage.save_models_from_jsonl(jsonl_path)
+            
+            click.echo(f"✅ Database save completed:")
+            click.echo(f"   • Saved: {saved_count} models")
+            click.echo(f"   • Skipped: {skipped_count} models (already existed)")
+            click.echo(f"   • Total in DB: {cli_context.model_storage.get_model_count()} models")
+            
+        except Exception as e:
+            error_msg = str(e)
+            if "no such file" in error_msg.lower():
+                click.echo(f"❌ File not found: {jsonl_path}", err=True)
+            elif "database" in error_msg.lower():
+                click.echo("❌ Database error: Please check database permissions and disk space.", err=True)
+            else:
+                click.echo(f"❌ Save failed: {e}", err=True)
+            logger.error(f"Save to DB failed: {e}", exc_info=True)
+            raise
+    
+    run_async(run_save_to_db())
+
+
+@cli.command('db-stats')
+def db_stats_command():
+    """Show database statistics."""
+    
+    async def run_db_stats():
+        try:
+            cli_context = CLIContext()
+            await cli_context.initialize()
+            
+            model_count = cli_context.model_storage.get_model_count()
+            
+            click.echo("📊 Database Statistics:")
+            click.echo(f"   • Total models: {model_count}")
+            
+            # Get category distribution
+            with cli_context.model_storage._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Category stats
+                cursor.execute("""
+                    SELECT c.name, COUNT(mc.model_id) as count
+                    FROM categories c
+                    LEFT JOIN model_categories mc ON c.id = mc.category_id
+                    WHERE mc.is_primary = TRUE
+                    GROUP BY c.name
+                    ORDER BY count DESC
+                """)
+                categories = cursor.fetchall()
+                
+                if categories:
+                    click.echo("   • Categories:")
+                    for category, count in categories:
+                        if count > 0:
+                            click.echo(f"     - {category}: {count}")
+                
+                # Tag stats
+                cursor.execute("SELECT COUNT(*) FROM tags")
+                tag_count = cursor.fetchone()[0]
+                click.echo(f"   • Total tags: {tag_count}")
+                
+                # Version stats
+                cursor.execute("SELECT COUNT(*) FROM model_versions")
+                version_count = cursor.fetchone()[0]
+                click.echo(f"   • Total versions: {version_count}")
+            
+        except Exception as e:
+            click.echo(f"❌ Failed to get database stats: {e}", err=True)
+            logger.error(f"DB stats failed: {e}", exc_info=True)
+            raise
+    
+    run_async(run_db_stats())
+
+
+@cli.command('export-from-db')
+@click.option('--category', '-c', help='Filter by primary category')
+@click.option('--base-model', '-b', help='Filter by base model')
+@click.option('--limit', '-l', type=int, help='Maximum number of models to export')
+@click.option('--output', '-o', default='db_export', help='Output file prefix (without extension)')
+@click.option('--format', 'output_format', type=click.Choice(['jsonl', 'csv', 'both']), 
+              default='both', help='Output format')
+def export_from_db_command(category, base_model, limit, output, output_format):
+    """Export models from database to JSONL/CSV format."""
+    
+    async def run_export_from_db():
+        try:
+            cli_context = CLIContext()
+            await cli_context.initialize()
+            
+            # Build filter description
+            filters = []
+            if category:
+                filters.append(f"category='{category}'")
+            if base_model:
+                filters.append(f"base_model='{base_model}'")
+            if limit:
+                filters.append(f"limit={limit}")
+            filter_desc = f" with filters: {', '.join(filters)}" if filters else ""
+            
+            click.echo(f"🔍 Exporting models from database{filter_desc}...")
+            
+            # Export to JSONL if requested
+            jsonl_count = 0
+            if output_format in ['jsonl', 'both']:
+                jsonl_path = Path(f"reports/{output}.jsonl")
+                jsonl_path.parent.mkdir(exist_ok=True)
+                jsonl_count = cli_context.model_storage.export_to_jsonl(
+                    jsonl_path, category=category, base_model=base_model, limit=limit
+                )
+                click.echo(f"✅ JSONL export: {jsonl_count} models → {jsonl_path}")
+            
+            # Export to CSV if requested
+            csv_count = 0
+            if output_format in ['csv', 'both']:
+                # First export to temporary JSONL
+                temp_jsonl = Path(f"reports/{output}_temp.jsonl")
+                temp_jsonl.parent.mkdir(exist_ok=True)
+                csv_count = cli_context.model_storage.export_to_jsonl(
+                    temp_jsonl, category=category, base_model=base_model, limit=limit
+                )
+                
+                # Convert to CSV using existing converter
+                csv_path = Path(f"reports/{output}.csv")
+                import sys
+                sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+                from convert_to_csv import convert_jsonl_to_csv
+                convert_jsonl_to_csv(str(temp_jsonl), str(csv_path))
+                
+                # Clean up temp file
+                temp_jsonl.unlink()
+                
+                click.echo(f"✅ CSV export: {csv_count} models → {csv_path}")
+            
+            if jsonl_count == 0 and csv_count == 0:
+                click.echo("⚠️  No models found matching the specified criteria")
+            
+        except Exception as e:
+            error_msg = str(e)
+            if "no such table" in error_msg.lower():
+                click.echo("❌ Database not initialized. Please run search first or save data to DB.", err=True)
+            elif "database" in error_msg.lower():
+                click.echo("❌ Database error: Please check database permissions.", err=True)
+            else:
+                click.echo(f"❌ Export failed: {e}", err=True)
+            logger.error(f"Export from DB failed: {e}", exc_info=True)
+            raise
+    
+    run_async(run_export_from_db())
 
 
 @cli.command('version')

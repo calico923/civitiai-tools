@@ -16,6 +16,7 @@ from .advanced_search import (
 )
 from ..security.security_scanner import SecurityScanner
 from ..security.license_manager import LicenseManager
+from ..exceptions import SearchError, NetworkError
 
 logger = logging.getLogger(__name__)
 
@@ -173,9 +174,14 @@ class AdvancedSearchEngine:
                 self.search_stats['fallback_used'] += 1
             return result
         except Exception as e:
-            logger.error(f"Official search failed: {e}")
-            self.unofficial_api_manager.record_feature_usage('basic_search', False)
-            raise
+            if "connection" in str(e).lower() or "network" in str(e).lower():
+                logger.error(f"Network error in official search: {e}")
+                self.unofficial_api_manager.record_feature_usage('basic_search', False)
+                raise NetworkError(f"Network error during search: {e}") from e
+            else:
+                logger.error(f"Official search failed: {e}")
+                self.unofficial_api_manager.record_feature_usage('basic_search', False)
+                raise SearchError(f"Search operation failed: {e}") from e
     
     async def search_streaming(self, search_params: AdvancedSearchParams, 
                              batch_size: int = 50):
@@ -246,9 +252,14 @@ class AdvancedSearchEngine:
                 self.search_stats['fallback_used'] += 1
             return result
         except Exception as e:
-            logger.error(f"Official search failed: {e}")
-            self.unofficial_api_manager.record_feature_usage('basic_search', False)
-            raise
+            if "connection" in str(e).lower() or "network" in str(e).lower():
+                logger.error(f"Network error in official search: {e}")
+                self.unofficial_api_manager.record_feature_usage('basic_search', False)
+                raise NetworkError(f"Network error during search: {e}") from e
+            else:
+                logger.error(f"Official search failed: {e}")
+                self.unofficial_api_manager.record_feature_usage('basic_search', False)
+                raise SearchError(f"Search operation failed: {e}") from e
     
     async def _advanced_search(self, search_params: AdvancedSearchParams) -> SearchResult:
         """Perform advanced search using unofficial API features."""
@@ -427,41 +438,44 @@ class AdvancedSearchEngine:
                 
                 page_count += 1
         else:
-            # Page-based pagination for non-query searches
-            current_page = search_params.page
+            # Use cursor-based pagination for non-query searches when nextCursor is available
+            cursor = None
+            page_count = 0
             
-            while len(all_models) < target_limit:
+            while len(all_models) < target_limit and page_count < 100:  # Safety limit
                 current_api_params = api_params.copy()
-                current_api_params['page'] = current_page
                 current_api_params['limit'] = min(per_page_limit, target_limit - len(all_models))
                 
-                print(f"DEBUG: Fetching page {current_page} with limit {current_api_params['limit']}")
+                if cursor:
+                    current_api_params['cursor'] = cursor
+                    print(f"DEBUG: Fetching with cursor={cursor}, limit={current_api_params['limit']}")
+                else:
+                    current_api_params['page'] = search_params.page  # Only for first request
+                    print(f"DEBUG: Fetching page {search_params.page} with limit {current_api_params['limit']}")
                 
                 response = await self._execute_api_call(current_api_params)
                 page_models = response.get('items', [])
                 
                 if not page_models:
-                    print(f"DEBUG: No more models found on page {current_page}")
+                    print(f"DEBUG: No more models found with cursor {cursor}")
                     break
                 
                 all_models.extend(page_models)
                 print(f"DEBUG: Got {len(page_models)} models, total: {len(all_models)}")
                 
-                # Check if we have enough models or if this was the last page
+                # Get next cursor
                 metadata = response.get('metadata', {})
-                current_page_num = metadata.get('currentPage', current_page)
-                total_pages = metadata.get('totalPages', 1)
+                next_cursor = metadata.get('nextCursor')
                 
-                if current_page_num >= total_pages or len(page_models) < current_api_params['limit']:
-                    print(f"DEBUG: Reached last page ({current_page_num}/{total_pages}) or got fewer models than requested")
+                print(f"DEBUG: Metadata: {metadata}")
+                print(f"DEBUG: nextCursor: {next_cursor}")
+                
+                if not next_cursor:
+                    print("DEBUG: No more cursors available")
                     break
                 
-                current_page += 1
-                
-                # Safety break to prevent infinite loops
-                if current_page > 100:  # Maximum reasonable pages
-                    print("DEBUG: Safety break - too many pages")
-                    break
+                cursor = next_cursor
+                page_count += 1
         
         print(f"DEBUG: Total models retrieved: {len(all_models)}")
         
@@ -470,7 +484,8 @@ class AdvancedSearchEngine:
         # Apply version-level filtering and continue fetching until target is reached
         if search_params.base_model or use_local_category_filter:
             filtered_models = []
-            current_cursor = cursor if has_query else None
+            # Use the last cursor from pagination (both query and non-query)
+            current_cursor = cursor
             
             # Process initial batch
             version_filter = LocalVersionFilter()
@@ -485,7 +500,7 @@ class AdvancedSearchEngine:
             
             # Continue fetching until we have enough filtered results or no more data
             additional_fetches = 0
-            while current_cursor and len(filtered_models) < target_limit and has_query:  # Continue until target is reached (cursor pagination only)
+            while current_cursor and len(filtered_models) < target_limit and additional_fetches < 50:  # Continue until target is reached
                 additional_fetches += 1
                 needed = target_limit - len(filtered_models)
                 fetch_size = min(100, max(50, needed * 2))  # Fetch extra to account for filtering
@@ -789,7 +804,7 @@ class AdvancedSearchEngine:
                 'detected_models': len(self.base_model_detector.detected_models),
                 'all_models': self.base_model_detector.get_all_detected_models()
             },
-            'filter_statistics': dict(self.triple_filter.filter_stats)
+            'filter_statistics': {}
         }
     
     def configure_unofficial_features(self, enable_advanced: bool = False, 

@@ -4,7 +4,7 @@ Category Classifier - 複数カテゴリを持つモデルの分類機能
 優先順位に基づいて主カテゴリを決定する
 """
 
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Tuple, Any
 import logging
 from dataclasses import dataclass
 
@@ -24,12 +24,11 @@ class CategoryClassifier:
     複数カテゴリを持つモデルをタグの出現順序に基づいて分類
     """
     
-    # 既知のカテゴリ一覧（CivitAIの15カテゴリ + 追加カテゴリ）
+    # 既知のカテゴリ一覧（SQL migrationのcategoriesテーブルと一致）
     KNOWN_CATEGORIES = {
-        'character', 'style', 'concept', 'background', 'poses',
-        'vehicle', 'clothing', 'action', 'animal', 'assets',
-        'base model', 'buildings', 'celebrity', 'objects', 'tool',
-        'body', 'outfit', 'base', 'workflow', 'wildcards'
+        'character', 'style', 'concept', 'clothing', 'background', 'tool',
+        'building', 'vehicle', 'object', 'animal', 'body', 'outfit',
+        'base', 'action', 'workflow', 'wildcards'
     }
     
     def __init__(self):

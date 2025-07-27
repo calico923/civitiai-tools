@@ -19,7 +19,7 @@ from core.search.advanced_search import (
     FileFormat, ModelCategory, SortOption, CustomSortMetric, RiskLevel, APIFeature
 )
 from core.search.search_engine import (
-    AdvancedSearchEngine, TripleFilterEngine, SearchResult
+    AdvancedSearchEngine, SearchResult
 )
 
 
@@ -170,30 +170,30 @@ class TestAdvancedSearchParams(unittest.TestCase):
         self.assertGreater(len(errors), 0)
         self.assertTrue(any('positive' in error for error in errors))
         
-        # Test API limit enforcement
+        # Test API limit enforcement in to_api_params (limit is capped at 100)
         high_limit_params = AdvancedSearchParams(limit=300)
-        errors = high_limit_params.validate()
-        self.assertTrue(any('exceed 200' in error for error in errors))
+        api_params = high_limit_params.to_api_params()
+        self.assertEqual(api_params['limit'], 100)  # Should be capped at 100
 
 
 class TestModelCategories(unittest.TestCase):
     """Test model categories per requirement 11.1."""
     
     def test_requirement_11_1_category_support(self):
-        """Test support for 15 categories per requirement 11.1."""
+        """Test support for categories aligned with SQL migration."""
         expected_categories = [
-            "character", "style", "concept", "background", "poses",
-            "vehicle", "clothing", "action", "animal", "assets",
-            "base model", "buildings", "celebrity", "objects", "tool"
+            "character", "style", "concept", "clothing", "background", 
+            "tool", "building", "vehicle", "object", "animal",
+            "body", "outfit", "base", "action", "workflow", "wildcards"
         ]
         
-        # Verify all 15 categories are available
+        # Verify all categories are available
         available_categories = [cat.value for cat in ModelCategory]
         
         for expected in expected_categories:
             self.assertIn(expected, available_categories)
         
-        self.assertEqual(len(ModelCategory), 15)
+        self.assertEqual(len(ModelCategory), 16)
     
     def test_category_integration_with_tags(self):
         """Test category integration with tag system per requirement 11.5."""
@@ -204,9 +204,11 @@ class TestModelCategories(unittest.TestCase):
         
         api_params = search_params.to_api_params()
         
-        # Categories should be included in tags
-        expected_tags = ["anime", "portrait", "character", "style"]
-        self.assertEqual(set(api_params['tag']), set(expected_tags))
+        # Categories and tags should be separate in API params
+        expected_tags = ["anime", "portrait"]
+        expected_categories = ["character", "style"]
+        self.assertEqual(api_params['tag'], expected_tags)
+        self.assertEqual(api_params['categories'], expected_categories)
 
 
 class TestCustomSorting(unittest.TestCase):
@@ -425,12 +427,13 @@ class TestUnofficialAPIManager(unittest.TestCase):
         self.assertEqual(basic_search_stats['success_rate'], 1.0)
 
 
-class TestTripleFilterEngine(unittest.TestCase):
-    """Test triple filtering system per requirement 11.2."""
+class TestLocalVersionFilter(unittest.TestCase):
+    """Test local version filtering system per requirement 11.2."""
     
     def setUp(self):
-        """Set up triple filter engine."""
-        self.filter_engine = TripleFilterEngine()
+        """Set up local version filter."""
+        from core.search.search_engine import LocalVersionFilter
+        self.filter_engine = LocalVersionFilter()
     
     def test_requirement_11_2_triple_filtering(self):
         """Test category × tag × type filtering per requirement 11.2."""
@@ -466,15 +469,23 @@ class TestTripleFilterEngine(unittest.TestCase):
             model_types=['LORA']
         )
         
-        filtered, stats = self.filter_engine.apply_triple_filter(models, search_params)
+        # Convert search params to filter arguments
+        categories = [cat.value.lower() for cat in search_params.categories] if search_params.categories else None
+        
+        filtered, stats = self.filter_engine.filter_by_version_criteria(
+            models, 
+            base_model=search_params.base_model,
+            model_types=search_params.model_types,
+            categories=categories
+        )
         
         # Should only return the anime character LORA
         self.assertEqual(len(filtered), 1)
         self.assertEqual(filtered[0]['id'], 1)
         
         # Verify filter statistics
-        self.assertEqual(stats['total_processed'], 3)
-        self.assertGreater(stats['category_filtered'], 0)
+        self.assertEqual(stats['models_processed'], 3)
+        self.assertGreater(stats['models_removed'], 0)
 
 
 class TestSearchEngineIntegration(unittest.IsolatedAsyncioTestCase):
