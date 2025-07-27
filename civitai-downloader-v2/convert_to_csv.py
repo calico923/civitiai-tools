@@ -36,7 +36,8 @@ def convert_jsonl_to_csv(jsonl_path: str, csv_path: str):
         # Header
         headers = [
             'ID', 'Name', 'Type', 'Creator', 'Downloads', 'Likes', 'Rating', 'Commercial_Use',
-            'Primary_Category', 'All_Categories', 'Tags', 'Base_Model', 'Description', 'Created_At', 'Updated_At'
+            'Primary_Category', 'All_Categories', 'Tags', 'Base_Model', 'Description', 
+            'Model_URL', 'Download_URL', 'Created_At', 'Updated_At'
         ]
         writer.writerow(headers)
         
@@ -73,6 +74,22 @@ def convert_jsonl_to_csv(jsonl_path: str, csv_path: str):
             # Description (extract useful info using new logic)
             description = extract_useful_description(model.get('description', ''))
             
+            # URLs
+            model_id = model.get('id', '')
+            model_url = f"https://civitai.com/models/{model_id}" if model_id else ""
+            
+            # Download URL from first version
+            download_url = ""
+            versions = model.get('modelVersions', [])
+            if versions and len(versions) > 0:
+                first_version = versions[0]
+                download_url = first_version.get('downloadUrl', '')
+                if not download_url:
+                    # Try to get from files
+                    files = first_version.get('files', [])
+                    if files and len(files) > 0:
+                        download_url = files[0].get('downloadUrl', '')
+            
             # Stats
             stats = model.get('stats', {})
             
@@ -90,6 +107,8 @@ def convert_jsonl_to_csv(jsonl_path: str, csv_path: str):
                 tags_str,
                 base_model_str,
                 description,
+                model_url,
+                download_url,
                 model.get('createdAt', ''),
                 model.get('updatedAt', '')
             ]
