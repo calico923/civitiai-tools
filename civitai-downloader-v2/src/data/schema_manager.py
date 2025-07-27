@@ -133,6 +133,7 @@ class DatabaseSchemaManager:
                         name TEXT NOT NULL,
                         type TEXT,
                         description TEXT,
+                        cleaned_description TEXT,
                         creator_id INTEGER,
                         creator_username TEXT,
                         nsfw BOOLEAN,
@@ -162,6 +163,50 @@ class DatabaseSchemaManager:
                         FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE,
                         FOREIGN KEY (category_id) REFERENCES categories(id),
                         UNIQUE(model_id, category_id)
+                    )
+                """,
+                "tags": """
+                    CREATE TABLE IF NOT EXISTS tags (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT UNIQUE NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """,
+                "model_tags": """
+                    CREATE TABLE IF NOT EXISTS model_tags (
+                        model_id INTEGER NOT NULL,
+                        tag_id INTEGER NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE,
+                        FOREIGN KEY (tag_id) REFERENCES tags(id),
+                        PRIMARY KEY (model_id, tag_id)
+                    )
+                """,
+                "model_versions": """
+                    CREATE TABLE IF NOT EXISTS model_versions (
+                        id INTEGER PRIMARY KEY,
+                        model_id INTEGER NOT NULL,
+                        name TEXT,
+                        base_model TEXT,
+                        download_url TEXT,
+                        file_size INTEGER,
+                        created_at TEXT,
+                        updated_at TEXT,
+                        stats TEXT,
+                        raw_data TEXT,
+                        FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE
+                    )
+                """,
+                "model_stats": """
+                    CREATE TABLE IF NOT EXISTS model_stats (
+                        model_id INTEGER PRIMARY KEY,
+                        download_count INTEGER DEFAULT 0,
+                        likes_count INTEGER DEFAULT 0,
+                        rating REAL DEFAULT 0,
+                        view_count INTEGER DEFAULT 0,
+                        comment_count INTEGER DEFAULT 0,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE
                     )
                 """,
                 "downloads": """
@@ -326,6 +371,42 @@ class DatabaseSchemaManager:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_model_primary_category 
             ON model_categories(model_id) 
             WHERE is_primary = TRUE
+        """)
+        
+        # Additional indexes for extended schema
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tags_name 
+            ON tags(name)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_model_tags_model_id 
+            ON model_tags(model_id)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_model_tags_tag_id 
+            ON model_tags(tag_id)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_model_versions_model_id 
+            ON model_versions(model_id)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_model_versions_base_model 
+            ON model_versions(base_model)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_model_stats_download_count 
+            ON model_stats(download_count)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_model_stats_likes_count 
+            ON model_stats(likes_count)
         """)
         
         conn.commit()
