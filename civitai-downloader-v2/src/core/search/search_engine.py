@@ -409,7 +409,9 @@ class AdvancedSearchEngine:
             cursor = None
             page_count = 0
             
-            while len(all_models) < target_limit and page_count < 10:  # Safety limit
+            # Dynamic limit based on target - allow much more fetching when limit is specified
+            max_pages = 99999 if target_limit > 100 else 10
+            while len(all_models) < target_limit and page_count < max_pages:  # Dynamic safety limit
                 current_api_params = api_params.copy()
                 current_api_params['limit'] = min(per_page_limit, target_limit - len(all_models))
                 
@@ -442,7 +444,9 @@ class AdvancedSearchEngine:
             cursor = None
             page_count = 0
             
-            while len(all_models) < target_limit and page_count < 100:  # Safety limit
+            # Dynamic limit based on target - allow much more fetching when limit is specified
+            max_pages = 99999 if target_limit > 1000 else 100
+            while len(all_models) < target_limit and page_count < max_pages:  # Dynamic safety limit
                 current_api_params = api_params.copy()
                 current_api_params['limit'] = min(per_page_limit, target_limit - len(all_models))
                 
@@ -500,7 +504,9 @@ class AdvancedSearchEngine:
             
             # Continue fetching until we have enough filtered results or no more data
             additional_fetches = 0
-            while current_cursor and len(filtered_models) < target_limit and additional_fetches < 50:  # Continue until target is reached
+            # Dynamic limit based on target - allow much more additional fetching when limit is specified
+            max_additional_fetches = 999 if target_limit > 100 else 50
+            while current_cursor and len(filtered_models) < target_limit and additional_fetches < max_additional_fetches:  # Continue until target is reached
                 additional_fetches += 1
                 needed = target_limit - len(filtered_models)
                 fetch_size = min(100, max(50, needed * 2))  # Fetch extra to account for filtering
