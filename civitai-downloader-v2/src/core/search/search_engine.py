@@ -17,8 +17,9 @@ from .advanced_search import (
 from ..security.security_scanner import SecurityScanner
 from ..security.license_manager import LicenseManager
 from ..exceptions import SearchError, NetworkError
+from ..logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -90,8 +91,8 @@ class AdvancedSearchEngine:
         Returns:
             SearchResult with filtered models and metadata
         """
-        print(f"DEBUG search_engine: search_params type: {type(search_params)}")
-        print(f"DEBUG search_engine: search_params: {search_params}")
+        logger.debug(f"search_engine: search_params type: {type(search_params)}")
+        logger.debug(f"search_engine: search_params: {search_params}")
         
         start_time = time.time()
         self.search_stats['total_searches'] += 1
@@ -195,12 +196,15 @@ class AdvancedSearchEngine:
         Yields:
             SearchResult batches
         """
+        logger.debug(f"search_streaming called with limit={search_params.limit}, batch_size={batch_size}")
         page = 1
         has_more = True
         total_yielded = 0
         original_limit = search_params.limit  # 元の目標数を保持
+        logger.debug(f"search_streaming: original_limit={original_limit}")
         
         while has_more and total_yielded < original_limit:
+            logger.debug(f"search_streaming loop: page={page}, has_more={has_more}, total_yielded={total_yielded}, original_limit={original_limit}")
             # Create paginated params (exclude page and limit to avoid conflicts)
             params_dict = search_params.__dict__.copy()
             params_dict.pop('page', None)
@@ -209,6 +213,7 @@ class AdvancedSearchEngine:
             # 残り必要数を計算
             remaining_needed = original_limit - total_yielded
             current_batch_size = min(batch_size, remaining_needed)
+            logger.debug(f"search_streaming: remaining_needed={remaining_needed}, current_batch_size={current_batch_size}")
             
             batch_params = AdvancedSearchParams(
                 **params_dict,
@@ -217,15 +222,23 @@ class AdvancedSearchEngine:
             )
             
             # Get batch (pass original target for proper filtering)
+            logger.debug(f"search_streaming: calling _search_with_target with batch limit={current_batch_size}, target={original_limit}")
             result = await self._search_with_target(batch_params, original_limit)
+            
+            logger.debug(f"search_streaming: got result with {len(result.models)} models, has_next={result.has_next}")
             
             # Yield batch if has results
             if result.models:
                 total_yielded += len(result.models)
+                logger.debug(f"search_streaming: yielding {len(result.models)} models, total_yielded now {total_yielded}")
                 yield result
+            else:
+                logger.debug("search_streaming: no models in result, not yielding")
             
             # Check if more pages and not reached limit
-            has_more = result.has_next and len(result.models) == current_batch_size and total_yielded < original_limit
+            # Fixed: Don't require exact batch size match - allow for last page with fewer results
+            has_more = result.has_next and len(result.models) > 0 and total_yielded < original_limit
+            logger.debug(f"search_streaming: has_more calculation: has_next={result.has_next}, models_count={len(result.models)}, total_yielded={total_yielded} < original_limit={original_limit} = {has_more}")
             page += 1
     
     async def _execute_search_with_fallback(self, search_params: AdvancedSearchParams) -> SearchResult:
@@ -312,13 +325,13 @@ class AdvancedSearchEngine:
     async def _official_search(self, search_params: AdvancedSearchParams, 
                              original_target: Optional[int] = None) -> SearchResult:
         """Perform official search using only documented API features."""
-        print(f"DEBUG _official_search: search_params type: {type(search_params)}")
-        print(f"DEBUG _official_search: search_params: {search_params}")
+        logger.debug(f"_official_search: search_params type: {type(search_params)}")
+        logger.debug(f"_official_search: search_params: {search_params}")
         
         # Check database cache first
         cached_models = await self._check_db_cache(search_params)
         if cached_models:
-            print(f"DEBUG: Using {len(cached_models)} cached models from database")
+            logger.debug(f"Using {len(cached_models)} cached models from database")
             return SearchResult(
                 models=cached_models,
                 total_count=len(cached_models),
@@ -338,7 +351,7 @@ class AdvancedSearchEngine:
                 }
             )
         
-        print("DEBUG: No suitable cache found, fetching from API")
+        logger.debug("No suitable cache found, fetching from API")
         
         # Convert to basic API parameters (official only)
         api_params = {
@@ -371,11 +384,11 @@ class AdvancedSearchEngine:
                 # Single category: use API filter + local filter (double validation)
                 api_params['category'] = category_names[0]
                 use_local_category_filter = True  # Force local filtering for accuracy
-                print(f"DEBUG: Using API category filter + local validation: {category_names[0]}")
+                logger.debug(f"Using API category filter + local validation: {category_names[0]}")
             else:
                 # Multiple categories: skip API filter, use local OR filter
                 use_local_category_filter = True
-                print(f"DEBUG: Multiple categories detected, using local OR filter: {category_names}")
+                logger.debug(f"Multiple categories detected, using local OR filter: {category_names}")
         
         # Add base model parameter (critical for filtering)
         if search_params.base_model:
@@ -393,15 +406,15 @@ class AdvancedSearchEngine:
             # Default to models_v9 like WebUI
             api_params['sort'] = 'Newest'
         
-        print(f"DEBUG: Final API params: {api_params}")
+        logger.debug(f"Final API params: {api_params}")
         
         # Execute API call with appropriate pagination
         all_models = []
-        # ストリーミング時は元の目標数を使用、通常時は現在のlimitを使用
+        # Use original_target if provided (for streaming), otherwise use search_params.limit
         target_limit = original_target if original_target else search_params.limit
         per_page_limit = min(100, max(search_params.limit, 50))  # API max is 100 per page, fetch at least 50 for filtering
         
-        print(f"DEBUG: target_limit = {target_limit}, original_target = {original_target}, search_params.limit = {search_params.limit}")
+        logger.debug(f"target_limit = {target_limit}, original_target = {original_target}, search_params.limit = {search_params.limit}")
         
         # Use cursor-based pagination for queries, page-based for non-queries
         if has_query:
@@ -418,24 +431,24 @@ class AdvancedSearchEngine:
                 if cursor:
                     current_api_params['cursor'] = cursor
                 
-                print(f"DEBUG: Fetching with cursor={cursor}, limit={current_api_params['limit']}")
+                logger.debug(f"Fetching with cursor={cursor}, limit={current_api_params['limit']}")
                 
                 response = await self._execute_api_call(current_api_params)
                 page_models = response.get('items', [])
                 
                 if not page_models:
-                    print(f"DEBUG: No more models found with cursor {cursor}")
+                    logger.debug(f"No more models found with cursor {cursor}")
                     break
                 
                 all_models.extend(page_models)
-                print(f"DEBUG: Got {len(page_models)} models, total: {len(all_models)}")
+                logger.debug(f"Got {len(page_models)} models, total: {len(all_models)}")
                 
                 # Get next cursor
                 metadata = response.get('metadata', {})
                 cursor = metadata.get('nextCursor')
                 
                 if not cursor:
-                    print("DEBUG: No more cursors available")
+                    logger.debug("No more cursors available")
                     break
                 
                 page_count += 1
@@ -452,38 +465,38 @@ class AdvancedSearchEngine:
                 
                 if cursor:
                     current_api_params['cursor'] = cursor
-                    print(f"DEBUG: Fetching with cursor={cursor}, limit={current_api_params['limit']}")
+                    logger.debug(f"Fetching with cursor={cursor}, limit={current_api_params['limit']}")
                 else:
                     current_api_params['page'] = search_params.page  # Only for first request
-                    print(f"DEBUG: Fetching page {search_params.page} with limit {current_api_params['limit']}")
+                    logger.debug(f"Fetching page {search_params.page} with limit {current_api_params['limit']}")
                 
                 response = await self._execute_api_call(current_api_params)
                 page_models = response.get('items', [])
                 
                 if not page_models:
-                    print(f"DEBUG: No more models found with cursor {cursor}")
+                    logger.debug(f"No more models found with cursor {cursor}")
                     break
                 
                 all_models.extend(page_models)
-                print(f"DEBUG: Got {len(page_models)} models, total: {len(all_models)}")
+                logger.debug(f"Got {len(page_models)} models, total: {len(all_models)}")
                 
                 # Get next cursor
                 metadata = response.get('metadata', {})
                 next_cursor = metadata.get('nextCursor')
                 
-                print(f"DEBUG: Metadata: {metadata}")
-                print(f"DEBUG: nextCursor: {next_cursor}")
+                logger.debug(f"Metadata: {metadata}")
+                logger.debug(f"nextCursor: {next_cursor}")
                 
                 if not next_cursor:
-                    print("DEBUG: No more cursors available")
+                    logger.debug("No more cursors available")
                     break
                 
                 cursor = next_cursor
                 page_count += 1
         
-        print(f"DEBUG: Total models retrieved: {len(all_models)}")
+        logger.debug(f"Total models retrieved: {len(all_models)}")
         
-        print(f"DEBUG: Initial API fetch completed: {len(all_models)} models")
+        logger.debug(f"Initial API fetch completed: {len(all_models)} models")
         
         # Apply version-level filtering and continue fetching until target is reached
         if search_params.base_model or use_local_category_filter:
@@ -500,7 +513,7 @@ class AdvancedSearchEngine:
                 categories=[cat.value for cat in search_params.categories] if use_local_category_filter else None
             )
             filtered_models.extend(batch_filtered)
-            print(f"DEBUG: Initial batch filtered: {len(batch_filtered)} from {len(all_models)} models")
+            logger.debug(f"Initial batch filtered: {len(batch_filtered)} from {len(all_models)} models")
             
             # Continue fetching until we have enough filtered results or no more data
             additional_fetches = 0
@@ -511,7 +524,7 @@ class AdvancedSearchEngine:
                 needed = target_limit - len(filtered_models)
                 fetch_size = min(100, max(50, needed * 2))  # Fetch extra to account for filtering
                 
-                print(f"DEBUG: Need {needed} more, fetching batch #{additional_fetches} (size: {fetch_size})")
+                logger.debug(f"Need {needed} more, fetching batch #{additional_fetches} (size: {fetch_size})")
                 
                 additional_params = api_params.copy()
                 additional_params['cursor'] = current_cursor
@@ -533,7 +546,7 @@ class AdvancedSearchEngine:
                     )
                     
                     filtered_models.extend(additional_filtered)
-                    print(f"DEBUG: Batch #{additional_fetches}: +{len(additional_filtered)} filtered (total: {len(filtered_models)})")
+                    logger.debug(f"Batch #{additional_fetches}: +{len(additional_filtered)} filtered (total: {len(filtered_models)})")
                     
                     # Update cursor
                     additional_metadata = additional_response.get('metadata', {})
@@ -543,13 +556,13 @@ class AdvancedSearchEngine:
                         break
                         
                 except Exception as e:
-                    print(f"DEBUG: Error in additional fetch: {e}")
+                    logger.debug(f"Error in additional fetch: {e}")
                     break
             
-            print(f"DEBUG: Final result: {len(filtered_models)} models after filtering (requested: {target_limit})")
+            logger.debug(f"Final result: {len(filtered_models)} models after filtering (requested: {target_limit})")
         else:
             filtered_models = all_models
-            print(f"DEBUG: No base model filtering, using all {len(filtered_models)} models")
+            logger.debug(f"No base model filtering, using all {len(filtered_models)} models")
         
         # Cache results to database for future use
         self._cache_models_to_db(filtered_models, search_params)
@@ -563,14 +576,22 @@ class AdvancedSearchEngine:
         except Exception as e:
             self.logger.warning(f"Cache metadata update failed: {e}")
         
-        print(f"DEBUG: Returning all filtered models: {len(filtered_models)}")
+        logger.debug(f"Returning all filtered models: {len(filtered_models)}")
+        
+        # Determine if more data is available
+        # For streaming: if we got a full batch and there's an overall target, continue
+        overall_target = original_target if original_target else search_params.limit
+        batch_is_full = len(filtered_models) >= search_params.limit
+        within_overall_limit = overall_target > search_params.limit
+        
+        logger.debug(f"has_next calculation: overall_target={overall_target}, batch_is_full={batch_is_full}, within_overall_limit={within_overall_limit}, final_has_next={batch_is_full and within_overall_limit}")
         
         return SearchResult(
             models=filtered_models,
             total_count=len(all_models),
             filtered_count=len(filtered_models),
             page=search_params.page,
-            has_next=False,  # We retrieved all available models
+            has_next=batch_is_full and within_overall_limit,  # Continue if batch is full and overall target is larger
             search_metadata={
                 'search_type': 'official',
                 'api_params': api_params,
@@ -603,7 +624,7 @@ class AdvancedSearchEngine:
                 except Exception as e:
                     self.logger.warning(f"Failed to cache model {model.get('id', 'unknown')}: {e}")
             
-            print(f"DEBUG: Cached {cached_count}/{len(models)} models to database")
+            logger.debug(f"Cached {cached_count}/{len(models)} models to database")
             
         except Exception as e:
             self.logger.warning(f"Database caching failed: {e}")
@@ -622,13 +643,13 @@ class AdvancedSearchEngine:
             
             if cache_info:
                 cache_age_hours = (time.time() - cache_info['timestamp']) / 3600
-                print(f"DEBUG: Cache found, age: {cache_age_hours:.1f} hours")
+                logger.debug(f"Cache found, age: {cache_age_hours:.1f} hours")
                 
                 if cache_age_hours > 24:
-                    print("DEBUG: Cache expired (>24h), will refresh from API")
+                    logger.debug("Cache expired (>24h), will refresh from API")
                     return None
                 elif cache_age_hours > 6 and await self._has_new_models_since(search_params, cache_info['latest_model_id']):
-                    print("DEBUG: New models detected, refreshing cache")
+                    logger.debug("New models detected, refreshing cache")
                     return None
             
             # Query database for matching models
@@ -640,7 +661,7 @@ class AdvancedSearchEngine:
             )
             
             if cached_models and len(cached_models) >= search_params.limit:
-                print(f"DEBUG: Using {len(cached_models)} fresh cached models")
+                logger.debug(f"Using {len(cached_models)} fresh cached models")
                 return cached_models
                 
         except Exception as e:
@@ -695,14 +716,14 @@ class AdvancedSearchEngine:
                 'sort': 'Newest'  # Get the most recent
             }
             
-            print("DEBUG: Checking for new models (1 API request)")
+            logger.debug("Checking for new models (1 API request)")
             response = await self._execute_api_call(api_params)
             latest_models = response.get('items', [])
             
             if latest_models:
                 latest_api_id = str(latest_models[0].get('id', ''))
                 is_newer = latest_api_id != latest_cached_id
-                print(f"DEBUG: Latest API ID: {latest_api_id}, Cached ID: {latest_cached_id}, New: {is_newer}")
+                logger.debug(f"Latest API ID: {latest_api_id}, Cached ID: {latest_cached_id}, New: {is_newer}")
                 return is_newer
                 
         except Exception as e:
@@ -740,7 +761,7 @@ class AdvancedSearchEngine:
             """, (cache_key, timestamp, latest_model_id, len(models)))
             
             db.connection.commit()
-            print(f"DEBUG: Updated cache info for key: {cache_key}")
+            logger.debug(f"Updated cache info for key: {cache_key}")
             
         except Exception as e:
             self.logger.warning(f"Cache info update failed: {e}")
@@ -750,8 +771,8 @@ class AdvancedSearchEngine:
     
     async def _execute_api_call(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Execute API call with error handling and rate limiting."""
-        print(f"DEBUG _execute_api_call: params type: {type(params)}")
-        print(f"DEBUG _execute_api_call: params: {params}")
+        logger.debug(f"_execute_api_call: params type: {type(params)}")
+        logger.debug(f"_execute_api_call: params: {params}")
         
         if not self.api_client:
             raise ValueError("API client not configured")
@@ -765,7 +786,7 @@ class AdvancedSearchEngine:
             time_since_last = current_time - self._last_api_call_time
             if time_since_last < 1.0:
                 wait_time = 1.0 - time_since_last
-                print(f"DEBUG: Rate limiting - waiting {wait_time:.2f}s")
+                logger.debug(f"Rate limiting - waiting {wait_time:.2f}s")
                 await asyncio.sleep(wait_time)
         
         self._last_api_call_time = time.time()
@@ -785,7 +806,7 @@ class AdvancedSearchEngine:
             except Exception as e:
                 if attempt < max_retries - 1:
                     wait_time = (2 ** attempt) * 2  # Exponential backoff: 2s, 4s, 8s
-                    print(f"DEBUG: API call failed (attempt {attempt + 1}/{max_retries}), retrying in {wait_time}s: {e}")
+                    logger.debug(f"API call failed (attempt {attempt + 1}/{max_retries}), retrying in {wait_time}s: {e}")
                     await asyncio.sleep(wait_time)
                 else:
                     raise
