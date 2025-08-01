@@ -281,3 +281,166 @@ class IntermediateFileManager:
                 }
         
         return summary
+    
+    def is_cache_valid(self, session_id: str, max_age_hours: float = 24.0) -> bool:
+        """
+        中間ファイルキャッシュが有効かどうかチェック
+        
+        Args:
+            session_id: セッションID
+            max_age_hours: キャッシュ有効期限（時間）
+            
+        Returns:
+            キャッシュが有効ならTrue
+        """
+        # rawファイルの存在確認
+        raw_file = self.get_intermediate_file_path(session_id, 'raw')
+        if not raw_file.exists():
+            return False
+        
+        # ファイルの更新時刻をチェック
+        try:
+            file_mtime = raw_file.stat().st_mtime
+            current_time = time.time()
+            age_hours = (current_time - file_mtime) / 3600
+            
+            is_valid = age_hours <= max_age_hours
+            self.logger.debug(f"Cache check: {session_id}, age: {age_hours:.1f}h, valid: {is_valid}")
+            return is_valid
+            
+        except Exception as e:
+            self.logger.error(f"Failed to check cache validity: {e}")
+            return False
+    
+    def get_latest_model_id_from_cache(self, session_id: str, suffix: str = "raw") -> Optional[str]:
+        """
+        キャッシュファイルから最新モデルIDを取得
+        
+        Args:
+            session_id: セッションID
+            suffix: ファイル接尾辞
+            
+        Returns:
+            最新モデルID（見つからない場合はNone）
+        """
+        file_path = self.get_intermediate_file_path(session_id, suffix)
+        
+        if not file_path.exists():
+            return None
+        
+        try:
+            # ファイルの最初の行を読んで最新IDを取得
+            with open(file_path, 'r', encoding='utf-8') as f:
+                first_line = f.readline().strip()
+                if first_line:
+                    model_data = json.loads(first_line)
+                    return str(model_data.get('id', ''))
+        except Exception as e:
+            self.logger.error(f"Failed to get latest model ID: {e}")
+        
+        return None
+    
+    def append_new_models(self, session_id: str, new_models: List[Dict[str, Any]], 
+                         suffix: str = "raw") -> bool:
+        """
+        新規モデルデータを既存の中間ファイルに追記
+        
+        Args:
+            session_id: セッションID
+            new_models: 新規モデルデータのリスト
+            suffix: ファイル接尾辞
+            
+        Returns:
+            成功時True
+        """
+        if not new_models:
+            return True
+        
+        # 重複チェック: 既存のモデルIDセットを取得
+        existing_ids = self._get_existing_model_ids(session_id, suffix)
+        
+        # 重複を除いた新規モデルのみを追記
+        unique_new_models = []
+        for model in new_models:
+            model_id = str(model.get('id', ''))
+            if model_id and model_id not in existing_ids:
+                unique_new_models.append(model)
+        
+        if not unique_new_models:
+            self.logger.debug(f"No new models to append (all duplicates)")
+            return True
+        
+        # 追記実行
+        success = self.stream_write_models(session_id, unique_new_models, suffix)
+        if success:
+            self.logger.info(f"Appended {len(unique_new_models)} new models to cache")
+        
+        return success
+    
+    def _get_existing_model_ids(self, session_id: str, suffix: str = "raw") -> set:
+        """
+        既存の中間ファイルからモデルIDセットを取得
+        
+        Args:
+            session_id: セッションID
+            suffix: ファイル接尾辞
+            
+        Returns:
+            既存モデルIDのセット
+        """
+        existing_ids = set()
+        file_path = self.get_intermediate_file_path(session_id, suffix)
+        
+        if not file_path.exists():
+            return existing_ids
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            model_data = json.loads(line)
+                            model_id = str(model_data.get('id', ''))
+                            if model_id:
+                                existing_ids.add(model_id)
+                        except json.JSONDecodeError:
+                            continue
+        except Exception as e:
+            self.logger.error(f"Failed to get existing model IDs: {e}")
+        
+        return existing_ids
+    
+    def cleanup_expired_caches(self, max_age_hours: float = 24.0) -> int:
+        """
+        期限切れのキャッシュファイルを削除
+        
+        Args:
+            max_age_hours: キャッシュ有効期限（時間）
+            
+        Returns:
+            削除したセッション数
+        """
+        cleaned_count = 0
+        current_time = time.time()
+        
+        # 中間ファイルディレクトリ内のファイルをチェック
+        for file_path in self.cache_dir.glob("*_raw.jsonl"):
+            try:
+                file_mtime = file_path.stat().st_mtime
+                age_hours = (current_time - file_mtime) / 3600
+                
+                if age_hours > max_age_hours:
+                    # セッションIDを抽出
+                    session_id = file_path.name.replace("_raw.jsonl", "")
+                    
+                    # セッション全体をクリーンアップ
+                    self.cleanup_session(session_id, keep_processed=False)
+                    cleaned_count += 1
+                    
+                    self.logger.info(f"Cleaned expired cache: {session_id} (age: {age_hours:.1f}h)")
+                    
+            except Exception as e:
+                self.logger.warning(f"Failed to process cache file {file_path}: {e}")
+        
+        return cleaned_count
