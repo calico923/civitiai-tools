@@ -40,25 +40,42 @@ class StreamingSearchEngine:
     
     async def streaming_search_with_recovery(self, search_params: AdvancedSearchParams,
                                            resume_session: Optional[str] = None,
-                                           batch_size: int = 50) -> Tuple[str, Dict[str, Any]]:
+                                           batch_size: int = 50,
+                                           max_cache_age_hours: float = 24.0,
+                                           force_refresh: bool = False) -> Tuple[str, Dict[str, Any]]:
         """
-        リカバリ機能付きストリーミング検索
+        リカバリ機能付きストリーミング検索（時間ベースキャッシュ対応）
         
         Args:
             search_params: 検索パラメータ
             resume_session: 再開するセッションID
             batch_size: バッチサイズ
+            max_cache_age_hours: キャッシュ有効期限（時間）
+            force_refresh: 強制的にキャッシュを無視して再取得
             
         Returns:
             (session_id, summary) のタプル
         """
-        # セッションIDの決定
+        # セッションIDの決定とキャッシュチェック
         if resume_session:
             session_id = resume_session
             self.logger.info(f"Resuming session: {session_id}")
         else:
             session_id = self.intermediate_manager.generate_session_id(search_params.__dict__)
-            self.logger.info(f"Starting new session: {session_id}")
+            
+            # キャッシュチェック
+            if not force_refresh and self.intermediate_manager.is_cache_valid(session_id, max_cache_age_hours):
+                self.logger.info(f"Using valid cache: {session_id}")
+                # 新規データチェック・追記処理
+                await self._check_and_append_new_data(session_id, search_params)
+                
+                # キャッシュから結果を返す
+                summary = self.intermediate_manager.get_session_summary(session_id)
+                return session_id, summary
+            else:
+                self.logger.info(f"Starting new session: {session_id}")
+                if force_refresh:
+                    self.logger.info("Force refresh requested, ignoring cache")
         
         try:
             # Step 1: API検索 → 中間ファイル保存
@@ -93,6 +110,146 @@ class StreamingSearchEngine:
             })
             self.logger.error(f"Search failed: {e}")
             raise
+    
+    async def _check_and_append_new_data(self, session_id: str, 
+                                       search_params: AdvancedSearchParams) -> None:
+        """
+        新規データをチェックして既存キャッシュに追記
+        
+        Args:
+            session_id: セッションID
+            search_params: 検索パラメータ
+        """
+        try:
+            # キャッシュから最新モデルIDを取得
+            latest_cached_id = self.intermediate_manager.get_latest_model_id_from_cache(session_id)
+            if not latest_cached_id:
+                self.logger.debug("No cached models found, skipping new data check")
+                return
+            
+            self.logger.info(f"Checking for new models since ID: {latest_cached_id}")
+            
+            # 最新の1件を取得して新規データがあるかチェック
+            check_params = AdvancedSearchParams(
+                query=search_params.query,
+                model_types=search_params.model_types,
+                categories=search_params.categories,
+                base_model=search_params.base_model,
+                tags=search_params.tags,
+                sort_option=search_params.sort_option,
+                limit=1  # 最新1件のみ
+            )
+            
+            # 軽量なAPI呼び出しで最新データをチェック
+            check_result = await self.search_engine._search_with_target(check_params, 1)
+            latest_models = check_result.models
+            
+            if not latest_models:
+                self.logger.debug("No models found in latest check")
+                return
+            
+            latest_api_id = str(latest_models[0].get('id', ''))
+            if latest_api_id == latest_cached_id:
+                self.logger.info("No new models found, cache is up to date")
+                return
+            
+            # 新規データが見つかった場合、差分取得
+            self.logger.info(f"New models detected, fetching updates...")
+            
+            # より大きなlimitで新規データを取得（効率的な差分取得）
+            new_data_params = AdvancedSearchParams(
+                query=search_params.query,
+                model_types=search_params.model_types,
+                categories=search_params.categories,
+                base_model=search_params.base_model,
+                tags=search_params.tags,
+                sort_option=search_params.sort_option,
+                limit=min(100, search_params.limit)  # 最大100件の新規データを取得
+            )
+            
+            new_result = await self.search_engine._search_with_target(new_data_params, new_data_params.limit)
+            new_models = new_result.models
+            
+            # 新規モデルのみを抽出（キャッシュ済みIDより新しいもの）
+            truly_new_models = []
+            for model in new_models:
+                model_id = str(model.get('id', ''))
+                if model_id and int(model_id) > int(latest_cached_id):
+                    truly_new_models.append(model)
+            
+            if truly_new_models:
+                # 新規データをキャッシュに追記
+                success = self.intermediate_manager.append_new_models(session_id, truly_new_models)
+                if success:
+                    self.logger.info(f"Appended {len(truly_new_models)} new models to cache")
+                    
+                    # フィルタリング済みファイルも更新
+                    await self._append_filtered_data(session_id, truly_new_models, search_params)
+                else:
+                    self.logger.warning("Failed to append new models to cache")
+            else:
+                self.logger.info("No truly new models to append")
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to check/append new data: {e}")
+            # エラーが発生してもキャッシュは使用可能
+    
+    async def _append_filtered_data(self, session_id: str, new_models: List[Dict[str, Any]], 
+                                  search_params: AdvancedSearchParams) -> None:
+        """
+        新規データにフィルタリングを適用してフィルタ済みファイルに追記
+        
+        Args:
+            session_id: セッションID
+            new_models: 新規モデルデータ
+            search_params: 検索パラメータ
+        """
+        try:
+            # カテゴリ分類を適用
+            classified_models = []
+            for model in new_models:
+                classified_model = await self._apply_category_classification(model)
+                classified_models.append(classified_model)
+            
+            # フィルタ済みファイルに追記
+            success = self.intermediate_manager.append_new_models(session_id, classified_models, "filtered")
+            if success:
+                self.logger.debug(f"Appended {len(classified_models)} filtered models")
+            
+            # 処理済みファイルにも追記
+            success = self.intermediate_manager.append_new_models(session_id, classified_models, "processed")
+            if success:
+                self.logger.debug(f"Appended {len(classified_models)} processed models")
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to append filtered data: {e}")
+    
+    async def _apply_category_classification(self, model: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        単一モデルにカテゴリ分類を適用
+        
+        Args:
+            model: モデルデータ
+            
+        Returns:
+            分類済みモデルデータ
+        """
+        try:
+            classified_model = model.copy()
+            
+            # カテゴリ分類を実行
+            primary_category, all_categories = self.category_classifier.classify_model(model)
+            
+            # 分類結果を追加
+            classified_model['_primary_category'] = primary_category
+            classified_model['_all_categories'] = all_categories
+            
+            return classified_model
+            
+        except Exception as e:
+            self.logger.warning(f"Category classification failed for model {model.get('id', 'unknown')}: {e}")
+            # 分類に失敗した場合はオリジナルデータを返す
+            return model
     
     async def _stream_api_to_intermediate(self, session_id: str, 
                                         search_params: AdvancedSearchParams,

@@ -1,285 +1,451 @@
 # CivitAI Downloader v2
 
-🎯 **エンタープライズグレード AIモデルダウンローダー** - CivitAIから高品質なAIモデルを効率的にダウンロード・管理するための統合CLIツール
+🎯 **高性能AIモデル収集・ダウンロードシステム** - CivitAIから高品質なAIモデルを大規模収集し、カテゴリ別に整理してダウンロードするための統合ツール
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Status: Production Ready](https://img.shields.io/badge/Status-Production%20Ready-green.svg)]()
 
+## 📊 現在のデータベース状況
+
+- **総モデル数**: **32,510件** (198MB SQLiteデータベース)
+  - **LORA**: 32,412件
+    - Style: 10,296件
+    - Pose: 数千件  
+    - Concept: 数千件
+    - Character: 数千件
+  - **Checkpoint**: 98件（Illustrious系）
+
 ## ✨ 主要機能
 
-### 🔍 高度な検索システム
-- **AdvancedSearchParams**: 複雑な検索条件とフィルタリング
-- **リアルタイムAPI統合**: CivitAI公式APIとの完全統合
-- **Triple Filtering**: カテゴリ × タグ × モデルタイプによる三重フィルタリング
-- **複数出力フォーマット**: JSON、CSV、テーブル形式での結果出力
+### 🔍 大規模データ収集システム
+- **ストリーミング検索**: 数万件のモデル情報を効率的に収集
+- **インテリジェントフィルタリング**: カテゴリ × タグ × モデルタイプによる高精度フィルタリング
+- **Most Downloaded順ソート**: 人気度に基づいた優先度付きダウンロード
+- **中間ファイル管理**: raw → filtered → processed の段階的データ処理
 
-### ⬇️ 堅牢なダウンロードシステム
-- **非同期ダウンロード**: 高速な並行ダウンロード機能
-- **レジューム機能**: 中断されたダウンロードの自動再開
-- **整合性検証**: SHA256ハッシュによるファイル検証
-- **進捗追跡**: リアルタイムダウンロード進捗表示
+### ⬇️ 選択的ダウンロードシステム
+- **カテゴリ別ダウンロード**: LORA（style/pose/concept/character）とCheckpoint別の管理
+- **組織化されたファイル構造**: `モデルタイプ/ベースモデル/カテゴリ/[ID]モデル名/バージョン名`
+- **豊富なメタデータ**: JSON形式の詳細情報と.civitai.infoファイル
+- **プレビュー画像**: 各モデルの代表画像を自動ダウンロード
+- **重複回避**: データベース記録による自動重複チェック機能
+- **ダウンロード履歴**: 完全なダウンロード履歴とファイルパス記録
 
-### 🛡️ セキュリティ機能
-- **セキュリティスキャン**: ダウンロードファイルの脅威検知
-- **SafeTensors優先**: 安全なファイル形式の自動選択
-- **アクセス制御**: 設定情報の安全な管理とマスキング
-
-### 📊 情報管理
-- **詳細モデル情報**: バージョン、ファイル、メタデータの完全表示
-- **設定管理**: YAML設定と環境変数のハイブリッド管理
-- **構造化ログ**: 詳細なログ記録とデバッグ情報
+### 🛡️ Stable Diffusion WebUI連携
+- **.civitai.info対応**: SD WebUI Civitai Helperとの完全互換性
+- **自動プレビュー**: モデル名と同名のプレビュー画像
+- **メタデータ管理**: 詳細なモデル情報をJSON形式で保存
 
 ## 🚀 クイックスタート
 
-### 1. 環境設定
+### 基本的な使用方法
 
+#### 1. データ収集（検索とデータベース構築）
 ```bash
-# リポジトリのクローン
-git clone <repository-url>
-cd civitai-downloader-v2
+# LORA styleモデルを1000件収集
+python -m src.cli.main search "" --types "LoRA" --categories "style" --limit 1000 --stream
 
-# 環境設定ファイルの作成
-cp .env.example .env
+# LORA poseモデルを500件収集
+python -m src.cli.main search "" --types "LoRA" --categories "pose" --limit 500 --stream
+
+# Checkpoint Illustriousモデルを100件収集
+python -m src.cli.main search "" --types "Checkpoint" --base-model "Illustrious" --limit 100 --stream
 ```
 
-### 2. API キーの設定
-
-`.env` ファイルを編集してCivitAI APIキーを設定：
-
+#### 2. 選択的ダウンロード（推奨方法）
 ```bash
-CIVITAI_API_KEY=your_actual_civitai_api_key_here
-CIVITAI_BASE_URL=https://civitai.com/api/v1
-CIVITAI_TIMEOUT=30
+# LORA styleモデルをMost Downloaded順に100件ダウンロード
+python scripts/quick_download.py --type LORA --categories style --max-models 100
+
+# 実行前の確認（ドライラン）
+python scripts/quick_download.py --type LORA --categories style --max-models 100 --dry-run
+
+# LORA poseモデルを50件ダウンロード
+python scripts/quick_download.py --type LORA --categories pose --max-models 50
+
+# 複数カテゴリを同時に200件ダウンロード
+python scripts/quick_download.py --type LORA --categories style character --max-models 200
+
+# Checkpointモデルを20件ダウンロード
+python scripts/quick_download.py --type Checkpoint --base-models Illustrious --max-models 20
+
+# ⚡ 自動重複回避: 既にダウンロード済みのモデルは自動スキップ
+# ⚡ データベース記録: 全ダウンロード履歴を自動記録・管理
 ```
 
-### 3. 依存関係のインストール
-
+#### 3. データベースからの一括ダウンロード
 ```bash
-pip install -r requirements.txt
+# データベース内の全モデルを一括ダウンロード
+python scripts/bulk_download.py --output-dir "/path/to/download"
 ```
 
-## 💻 CLI使用方法
+## 💻 詳細な使用方法
 
-### 🔍 モデル検索
+### 🔍 高度な検索オプション
 
 ```bash
-# 基本検索
-python -m src.cli.main search "anime character"
+# 複数タイプを同時検索
+python -m src.cli.main search "anime" --types "LoRA" "Checkpoint" --limit 500
 
-# 詳細検索（JSON出力）
-python -m src.cli.main search --limit 10 --format json "LoRA"
+# NSFWコンテンツを除外
+python -m src.cli.main search "character" --no-nsfw --categories "character"
 
-# 結果をファイルに保存
-python -m src.cli.main search --output results.json "stable diffusion"
+# 特定のベースモデルで絞り込み
+python -m src.cli.main search "" --base-model "Illustrious" --types "Checkpoint"
+
+# 結果をJSONファイルに保存
+python -m src.cli.main search "style" --output results.json --limit 100
 ```
 
-### 📋 モデル情報表示
+### 📋 モデル情報確認
 
 ```bash
-# 基本情報
-python -m src.cli.main info 257749
-
-# バージョン情報付き
-python -m src.cli.main info 257749 --versions
-
-# ファイル情報付き
-python -m src.cli.main info 257749 --versions --files
-```
-
-### ⬇️ ダウンロード
-
-```bash
-# モデルIDでダウンロード
-python -m src.cli.main download 257749
-
-# カスタムディレクトリに保存
+# 単一モデルのダウンロード
 python -m src.cli.main download 257749 --output-dir ./models
 
-# セキュリティスキャン付き
-python -m src.cli.main download 257749 --scan-security
+# データベース内のモデル数確認
+sqlite3 data/civitai.db "SELECT type, COUNT(*) FROM models GROUP BY type;"
+
+# ダウンロード済みモデル確認
+sqlite3 data/civitai.db "SELECT COUNT(*) FROM downloads WHERE status = 'completed';"
+
+# 最新のダウンロード履歴確認
+sqlite3 data/civitai.db "SELECT model_id, file_name, downloaded_at FROM downloads WHERE status = 'completed' ORDER BY downloaded_at DESC LIMIT 10;"
 ```
 
-### 🛡️ セキュリティスキャン
+### ⚙️ フィルタリングとカスタマイズ
 
 ```bash
-# ファイルスキャン
-python -m src.cli.main scan ./model.safetensors
+# ダウンロード間隔を調整（負荷軽減）
+python scripts/quick_download.py --type LORA --categories style --max-models 10 --delay 2.0
 
-# 詳細レポート
-python -m src.cli.main scan ./model.safetensors --detailed
+# カスタム出力ディレクトリ
+python scripts/quick_download.py --type LORA --categories style --max-models 50 --output-dir "/custom/path"
+
+# JSONLファイルの後処理フィルタリング
+python scripts/filter_jsonl.py data/intermediate/search_YYYYMMDD_HHMMSS_processed.jsonl poses
 ```
 
-### ⚙️ 設定管理
+## 📁 出力ファイル構造
 
-```bash
-# 設定一覧
-python -m src.cli.main config --list
+ダウンロードされたモデルは以下の構造で整理されます：
 
-# 設定値取得
-python -m src.cli.main config --get api.timeout
-
-# 設定値変更
-python -m src.cli.main config --set api.timeout=60
+```
+/Volumes/Create-Images/Civitiai-download/          # デフォルト出力ディレクトリ
+├── LORA/                                         # LORAモデル
+│   ├── Illustrious/                             # ベースモデル別
+│   │   ├── style/                               # カテゴリ別
+│   │   │   └── [11161]Cutesexyrobutts_Style/    # [ID]モデル名
+│   │   │       └── v1.0/                        # バージョン別
+│   │   │           ├── cutesexyrobutts_style_v1.safetensors      # モデルファイル
+│   │   │           ├── cutesexyrobutts_style_v1.preview.png      # プレビュー画像
+│   │   │           ├── cutesexyrobutts_style_v1.civitai.info     # SD WebUI用情報
+│   │   │           └── metadata.json                             # 詳細メタデータ
+│   │   ├── pose/                                # ポーズ系LORA
+│   │   ├── concept/                             # コンセプト系LORA
+│   │   └── character/                           # キャラクター系LORA
+│   └── Pony/                                    # 他のベースモデル（将来対応）
+└── Checkpoint/                                   # Checkpointモデル
+    └── Illustrious/                             # ベースモデル別
+        └── basemodel/                           # カテゴリ別
+            └── [32022]Mistoon_Sapphire/         # [ID]モデル名
+                └── v2.1/                        # バージョン別
+                    ├── mistoon_sapphire_v2.1.safetensors        # モデルファイル
+                    ├── mistoon_sapphire_v2.1.preview.png        # プレビュー画像
+                    ├── mistoon_sapphire_v2.1.civitai.info       # SD WebUI用情報
+                    └── metadata.json                             # 詳細メタデータ
 ```
 
 ## 📁 プロジェクト構造
 
 ```
 civitai-downloader-v2/
-├── src/
-│   ├── cli/                    # CLI インターフェース
-│   │   └── main.py            # メインCLI実装
-│   ├── api/                   # API クライアント
-│   │   ├── client.py          # CivitAI API クライアント
-│   │   ├── auth.py            # 認証管理
-│   │   └── params.py          # パラメータ定義
-│   ├── core/                  # コア機能
-│   │   ├── config/            # 設定管理
-│   │   ├── download/          # ダウンロード管理
-│   │   ├── search/            # 検索エンジン
-│   │   ├── security/          # セキュリティ機能
-│   │   └── bulk/              # バルクダウンロード
-│   ├── data/                  # データ管理
-│   │   └── schema_manager.py  # データベーススキーマ
-│   └── monitoring/            # ログ・監視
-├── tests/                     # テストスイート
-├── reports/                   # レポート出力
-├── .env.example              # 環境設定テンプレート
-└── README.md                 # このファイル
+├── src/                              # ソースコード
+│   ├── cli/main.py                   # メインCLI
+│   ├── core/                         # コア機能
+│   │   ├── search/search_engine.py   # 検索エンジン
+│   │   ├── download/manager.py       # ダウンロード管理
+│   │   └── config/system_config.py  # 設定管理
+│   ├── data/database.py              # データベース管理
+│   ├── api/client.py                 # CivitAI API クライアント
+│   └── utils/                        # ユーティリティ
+├── data/                             # データファイル
+│   ├── civitai.db                    # メインデータベース (32,510件)
+│   └── intermediate/                 # 中間ファイル
+│       ├── *_raw.jsonl              # API生データ
+│       ├── *_filtered.jsonl         # フィルタリング済み
+│       └── *_processed.jsonl        # 処理済みデータ
+├── logs/civitai_debug.log            # デバッグログ
+├── scripts/                          # ユーティリティスクリプト
+│   ├── quick_download.py             # 選択的ダウンロード（推奨）
+│   ├── bulk_download.py              # 一括ダウンロード
+│   ├── import_to_db.py               # DBインポート
+│   ├── filter_jsonl.py               # 後処理フィルタリング
+│   └── README.md                     # スクリプト説明
+├── archive/                          # 旧版ファイル保管
+│   ├── legacy-data/                  # 古いデータファイル
+│   ├── legacy-tests/                 # 古いテストファイル
+│   └── README.md                     # アーカイブ説明
+└── README.md                         # このファイル
 ```
 
-## 🔧 設定オプション
+## 🔧 設定とカスタマイズ
 
-### 環境変数
+### 基本設定
 
-| 変数名 | 説明 | デフォルト値 | 必須 |
-|--------|------|-------------|------|
-| `CIVITAI_API_KEY` | CivitAI APIキー | なし | ✅ |
-| `CIVITAI_BASE_URL` | API ベースURL | `https://civitai.com/api/v1` | ❌ |
-| `CIVITAI_TIMEOUT` | APIタイムアウト(秒) | `30` | ❌ |
-| `CIVITAI_MAX_RETRIES` | 最大リトライ回数 | `3` | ❌ |
-| `CIVITAI_CONCURRENT_DOWNLOADS` | 並行ダウンロード数 | `3` | ❌ |
-| `CIVITAI_CHUNK_SIZE` | チャンクサイズ(バイト) | `8192` | ❌ |
-| `CIVITAI_VERIFY_SSL` | SSL検証有効化 | `true` | ❌ |
-| `CIVITAI_LOG_LEVEL` | ログレベル | `INFO` | ❌ |
+```bash
+# API設定（オプション - 高レート制限が必要な場合）
+export CIVITAI_API_KEY="your_api_key_here"
+
+# カスタム出力ディレクトリ
+export DEFAULT_OUTPUT_DIR="/path/to/your/download/directory"
+```
+
+### 設定ファイル
+
+設定は `deployment/config/app_config.yml` で管理：
+
+```yaml
+download:
+  output_directory: "/Volumes/Create-Images/Civitiai-download"
+  max_concurrent_downloads: 3
+  delay_between_downloads: 1.0
+
+search:
+  default_limit: 100
+  max_stream_limit: 50000
+  enable_html_cleanup: true
+
+api:
+  timeout: 30
+  max_retries: 3
+```
 
 ### 検索フィルタオプション
 
 ```bash
-# NSFWフィルタ
---nsfw                    # NSFW コンテンツを含める
+# モデルタイプ指定
+--types "LoRA"                     # LORA のみ
+--types "Checkpoint"               # Checkpoint のみ
+--types "LoRA" "Checkpoint"        # 複数タイプ
 
-# モデルタイプフィルタ  
---types LORA,Checkpoint   # 特定タイプのみ
+# カテゴリフィルタ
+--categories "style"               # スタイル系のみ
+--categories "pose"                # ポーズ系のみ
+--categories "style" "character"   # 複数カテゴリ
 
-# ソート
---sort "Most Downloaded"  # ダウンロード数順
+# ベースモデルフィルタ
+--base-model "Illustrious"         # Illustrious系のみ
 
-# 出力制限
---limit 50               # 結果数制限
+# ソート・制限
+--sort "Most Downloaded"           # 人気順
+--limit 1000                       # 結果数制限
+--stream                           # ストリーミング検索（大量データ用）
+
+# NSFW設定
+--nsfw                             # NSFWを含める
+--no-nsfw                          # NSFWを除外（デフォルト）
 ```
 
-## 🧪 テスト
+## 🔄 データフロー
+
+1. **検索・収集フェーズ**: CivitAI API → raw.jsonl → filtered.jsonl → processed.jsonl
+2. **データベース格納**: processed.jsonl → SQLite DB (civitai.db) 
+3. **選択的ダウンロード**: DB query → カテゴリフィルタリング → Most Downloaded順ソート → 重複チェック → ダウンロード実行 → DB記録
+
+## 📊 パフォーマンス最適化
+
+### 大規模ダウンロード時の推奨設定
 
 ```bash
-# 全テスト実行
-python -m pytest tests/
+# 並行度とレート制限の調整
+python scripts/quick_download.py --type LORA --categories style --max-models 1000 --delay 1.5
 
-# 特定モジュール
-python -m pytest tests/unit/test_search_engine.py
-
-# カバレッジ付き
-python -m pytest tests/ --cov=src --cov-report=html
+# バッチサイズ調整でメモリ使用量制御
+python -m src.cli.main search "" --types "LoRA" --limit 10000 --stream --batch-size 100
 ```
 
-## 🛠️ 開発ステータス
+### システムリソース管理
 
-### ✅ Phase 1-4: 完了済み
-- [x] **基盤システム**: データベース、ログ、設定管理
-- [x] **API統合**: CivitAI API クライアント実装
-- [x] **検索エンジン**: 高度な検索・フィルタリング機能
-- [x] **ダウンロード**: 並行ダウンロード・レジューム機能
-- [x] **セキュリティ**: ファイルスキャン・検証機能
-- [x] **CLI インターフェース**: 完全なコマンドライン操作
-- [x] **バルクダウンロード**: 大量ダウンロード管理
-- [x] **パフォーマンス最適化**: 適応的リソース管理
+- **メモリ使用量**: ストリーミング検索により大規模データセットでも安定動作
+- **ディスク容量**: モデルファイル50MB-2GB、十分な空き容量を確保
+- **ネットワーク**: 大量ダウンロード時はdelay調整で負荷分散
 
-### 🔄 現在の状況
-すべてのコア機能が実装済みで、本番環境での使用準備完了。全CLIコマンドが正常動作し、リアルAPIデータによる完全統合が実現されています。
+## 📝 ログとデバッグ
 
-## 📝 使用例
-
-### 基本的なワークフロー
+すべてのログは `logs/civitai_debug.log` に出力：
 
 ```bash
-# 1. アニメ系LoRAを検索
-python -m src.cli.main search --types LORA "anime character" --limit 10
+# リアルタイムログ監視
+tail -f logs/civitai_debug.log
 
-# 2. 特定モデルの詳細確認
-python -m src.cli.main info 257749 --versions --files
+# エラーログのみ表示
+grep "ERROR" logs/civitai_debug.log
 
-# 3. 安全にダウンロード
-python -m src.cli.main download 257749 --scan-security --output-dir ./anime_models
-
-# 4. ダウンロードファイルをスキャン
-python -m src.cli.main scan ./anime_models/model.safetensors --detailed
+# デバッグ情報付きで実行
+python scripts/quick_download.py --type LORA --categories style --max-models 5 --dry-run
 ```
 
-### 高度な検索
+## 🗄️ データベース管理
+
+SQLiteデータベース（`data/civitai.db`）の管理：
 
 ```bash
-# 複数条件での検索
-python -m src.cli.main search --types "LORA,Checkpoint" --nsfw "realistic portrait" --format json --output results.json
+# データベース状況確認
+sqlite3 data/civitai.db "SELECT type, COUNT(*) FROM models GROUP BY type;"
 
-# 設定確認とカスタマイズ
-python -m src.cli.main config --list
-python -m src.cli.main config --set download.concurrent_downloads=5
+# ダウンロード状況確認
+sqlite3 data/civitai.db "SELECT status, COUNT(*) FROM downloads GROUP BY status;"
+
+# 特定カテゴリの件数確認
+sqlite3 data/civitai.db "SELECT COUNT(*) FROM models WHERE type = 'LORA' AND raw_data LIKE '%style%';"
+
+# ダウンロード履歴の詳細確認
+sqlite3 data/civitai.db "SELECT d.model_id, m.name, d.file_name, d.downloaded_at FROM downloads d JOIN models m ON d.model_id = m.id WHERE d.status = 'completed' ORDER BY d.downloaded_at DESC LIMIT 20;"
+
+# 整合性チェック
+sqlite3 data/civitai.db "PRAGMA integrity_check;"
+
+# バックアップ作成
+cp data/civitai.db data/civitai_backup_$(date +%Y%m%d).db
 ```
 
-## 🔧 トラブルシューティング
+## ⚡ クイックリファレンス
 
-### よくある問題
-
-1. **API エラー 404**: モデルIDが存在しない、または非公開
-2. **ダウンロード失敗**: ネットワーク接続またはアクセス権限の問題
-3. **設定エラー**: `.env`ファイルの設定確認
-
-### デバッグ
+### よく使うコマンド集
 
 ```bash
-# 詳細ログ出力
-python -m src.cli.main --verbose search "test"
+# 【データ収集】新しいカテゴリを収集
+python -m src.cli.main search "" --types "LoRA" --categories "concept" --limit 1000 --stream
 
-# 設定確認
-python -m src.cli.main config --list
+# 【確認】ダウンロード対象をチェック
+python scripts/quick_download.py --type LORA --categories style --max-models 20 --dry-run
+
+# 【実行】実際のダウンロード（重複自動回避）
+python scripts/quick_download.py --type LORA --categories style --max-models 100
+
+# 【管理】データベース状況確認
+sqlite3 data/civitai.db "SELECT type, COUNT(*) FROM models GROUP BY type;"
+
+# 【履歴】ダウンロード完了状況確認
+sqlite3 data/civitai.db "SELECT COUNT(*) FROM downloads WHERE status = 'completed';"
 ```
 
-## 🤝 コントリビューション
+### 推奨ワークフロー
 
-1. リポジトリをフォーク
-2. フィーチャーブランチを作成 (`git checkout -b feature/new-feature`)
-3. 変更をコミット (`git commit -am 'Add new feature'`)
-4. ブランチにプッシュ (`git push origin feature/new-feature`)
-5. プルリクエストを作成
+1. **段階的収集**: 少数でテスト → 大量収集
+2. **カテゴリ別管理**: 用途に応じてカテゴリを分けて収集・ダウンロード
+3. **重複回避活用**: 大量ダウンロード時も既存チェックで効率的実行
+4. **定期実行**: cron等で定期的に新しいモデルを自動収集
+5. **履歴管理**: データベースでダウンロード状況を継続的に追跡
+6. **バックアップ**: 重要なデータベースは定期的にバックアップ
 
-## 📄 ライセンス
+## 🚨 トラブルシューティング
 
-このプロジェクトはMITライセンスの下で公開されています。詳細は[LICENSE](LICENSE)ファイルを参照してください。
+### よくある問題と解決方法
 
-## 🙏 謝辞
+#### 1. ダウンロードが失敗する
+```bash
+# ネットワーク接続確認
+ping civitai.com
 
-- [CivitAI](https://civitai.com/) - 素晴らしいAIモデルプラットフォームの提供
-- Python コミュニティ - 優秀なライブラリとツールの開発
+# ダウンロード間隔を長くして再試行
+python scripts/quick_download.py --type LORA --categories style --max-models 10 --delay 3.0
+
+# ログで詳細エラーを確認
+tail -f logs/civitai_debug.log
+```
+
+#### 2. データベースの不整合
+```bash
+# データベース整合性チェック
+sqlite3 data/civitai.db "PRAGMA integrity_check;"
+
+# 必要に応じてバックアップから復旧
+cp data/civitai_backup_20250729.db data/civitai.db
+
+# 重複チェック
+sqlite3 data/civitai.db "SELECT id, COUNT(*) FROM models GROUP BY id HAVING COUNT(*) > 1;"
+```
+
+#### 3. 検索結果が期待と異なる
+```bash
+# ドライランで対象を確認
+python scripts/quick_download.py --type LORA --categories style --max-models 5 --dry-run
+
+# APIパラメータが正しいかデバッグ
+python -m src.cli.main search "test" --types "LoRA" --categories "style" --limit 5
+```
+
+#### 4. メモリ不足エラー
+```bash
+# バッチサイズを小さくする
+python -m src.cli.main search "" --types "LoRA" --limit 1000 --stream --batch-size 50
+
+# 並行ダウンロード数を減らす
+python scripts/quick_download.py --type LORA --categories style --max-models 100 --delay 2.0
+```
+
+### エラーメッセージ対応
+
+| エラー | 原因 | 解決方法 |
+|-------|------|----------|
+| `JSONDecodeError` | データベースのraw_data形式問題 | `ast.literal_eval`を使用（修正済み） |
+| `Connection timeout` | ネットワークまたはAPI制限 | delay増加、API Key設定 |
+| `File not found` | 出力ディレクトリ未作成 | 自動作成されるが、権限確認 |
+| `Database locked` | 複数プロセス同時実行 | プロセスを一つずつ実行 |
+| `Already downloaded, skipping` | 重複ダウンロード検出 | 正常動作、効率的な重複回避 |
+
+## 💡 Tips & Tricks
+
+### 効率的な使い方
+
+1. **段階的アプローチ**: まず10-20件でテストしてから大量ダウンロード
+2. **カテゴリ別収集**: 用途を明確にしてカテゴリを分けて管理
+3. **Most Downloaded活用**: 人気モデルから優先的にダウンロード
+4. **重複回避の活用**: 大量実行時も既存モデルは自動スキップで高速化
+5. **履歴管理**: データベースクエリでダウンロード状況を定期確認
+6. **定期実行**: 新しいモデルを自動で収集する仕組みを構築
+
+### パフォーマンスチューニング
+
+```bash
+# 高速大量収集（ネットワーク帯域に注意）
+python scripts/quick_download.py --type LORA --categories style --max-models 500 --delay 0.5
+
+# 安定重視（サーバ負荷軽減）
+python scripts/quick_download.py --type LORA --categories style --max-models 100 --delay 2.0
+
+# バランス型（推奨設定）
+python scripts/quick_download.py --type LORA --categories style --max-models 200 --delay 1.0
+```
+
+## 🎯 今後の拡張予定
+
+- [ ] **NoobAI対応**: NoobAIベースモデルのサポート追加
+- [ ] **WebUI**: ブラウザベースの管理インターフェース
+- [ ] **自動更新**: 新規モデルの自動検出・ダウンロード
+- [ ] **統計ダッシュボード**: ダウンロード統計とトレンド分析
+- [ ] **カスタムフィルタ**: ユーザー定義の高度なフィルタリングルール
+- [ ] **品質評価**: モデル品質の自動評価システム
+
+## 🔗 関連リンク
+
+- **CivitAI**: https://civitai.com/ - AIモデルプラットフォーム
+- **Stable Diffusion WebUI**: https://github.com/AUTOMATIC1111/stable-diffusion-webui
+- **CivitAI Helper**: https://github.com/butaixianran/Stable-Diffusion-Webui-Civitai-Helper
+
+## 📞 サポート
+
+問題や質問がある場合は、以下の情報とともにお問い合わせください：
+
+1. **使用コマンド**: 実行したコマンドライン
+2. **エラーログ**: `logs/civitai_debug.log` の関連部分
+3. **環境情報**: OS、Python バージョン、データベースサイズ
 
 ---
 
-## 🆘 サポート
+**🎨 Happy AI Model Collecting! ✨**
 
-問題が発生した場合は、以下の手順でサポートを受けてください：
-
-1. **ドキュメント確認**: README とヘルプコマンドを確認
-2. **ログ確認**: `--verbose` フラグで詳細ログを取得
-3. **Issue作成**: バグレポートや機能要求をGitHub Issuesに投稿
-
-**Happy Downloading!** 🎉
+*高品質なAIモデルの収集とダウンロードをお楽しみください！*

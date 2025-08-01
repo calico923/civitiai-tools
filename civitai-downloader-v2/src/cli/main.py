@@ -127,7 +127,9 @@ def cli(ctx, config, verbose):
               help='Output format (default: from config)')
 @click.option('--resume', help='Resume from previous session ID')
 @click.option('--stream/--no-stream', default=True, help='Use streaming processing (default: True)')
-def search_command(query, nsfw, types, sort, limit, output, output_format, categories, tags, base_model, resume, stream):
+@click.option('--refresh', is_flag=True, help='Force refresh cache, ignore existing intermediate files')
+@click.option('--max-age', default='24h', help='Maximum cache age (e.g., 6h, 12h, 24h, 48h)')
+def search_command(query, nsfw, types, sort, limit, output, output_format, categories, tags, base_model, resume, stream, refresh, max_age):
     """Search for models on CivitAI."""
     
     async def run_search():
@@ -183,6 +185,28 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
             if nsfw:
                 click.echo("Including NSFW content")
             
+            # キャッシュオプションの解析
+            def parse_max_age(age_str: str) -> float:
+                """max_age文字列を時間（hour）に変換"""
+                if age_str.endswith('h'):
+                    return float(age_str[:-1])
+                elif age_str.endswith('d'):
+                    return float(age_str[:-1]) * 24
+                else:
+                    # デフォルトは時間として扱う
+                    return float(age_str)
+            
+            try:
+                max_age_hours = parse_max_age(max_age)
+            except ValueError:
+                click.echo(f"Invalid --max-age format: {max_age}. Use format like '6h', '12h', '24h', '2d'")
+                return
+            
+            if refresh:
+                click.echo("Force refresh mode: ignoring existing cache")
+            else:
+                click.echo(f"Cache max age: {max_age_hours} hours")
+            
             # ストリーム処理 vs 従来処理の選択
             if stream:
                 # ストリーム処理を使用
@@ -193,9 +217,12 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                 
                 click.echo("Using streaming processing with intermediate files...")
                 
-                # ストリーミング検索実行
+                # ストリーミング検索実行（キャッシュオプション付き）
                 session_id, summary = await streaming_engine.streaming_search_with_recovery(
-                    search_params, resume_session=resume
+                    search_params, 
+                    resume_session=resume,
+                    max_cache_age_hours=max_age_hours,
+                    force_refresh=refresh
                 )
                 
                 click.echo(f"Session completed: {session_id}")
