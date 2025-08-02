@@ -10,6 +10,7 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Optional, List
+from tqdm import tqdm
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
@@ -36,7 +37,8 @@ async def quick_selective_download(
     base_models: Optional[List[str]] = None,
     max_models: int = 100,
     dry_run: bool = False,
-    delay: float = 1.0
+    delay: float = 1.0,
+    search_mode: str = "AND"  # "AND" or "OR" search for multiple categories/base_models
 ):
     """Quick selective download bypassing complex initialization."""
     
@@ -44,10 +46,15 @@ async def quick_selective_download(
     logger.info(f"📁 Output directory: {output_dir}")
     logger.info(f"🎯 Model type: {model_type}")
     
-    if model_type == "LORA" and categories:
-        logger.info(f"🏷️  Categories: {', '.join(categories)}")
-    elif model_type == "Checkpoint" and base_models:
-        logger.info(f"🎨 Base models: {', '.join(base_models)}")
+    # Log filtering conditions
+    filter_info = []
+    if categories:
+        filter_info.append(f"Categories: {', '.join(categories)}")
+    if base_models:
+        filter_info.append(f"Base models: {', '.join(base_models)}")
+    
+    if filter_info:
+        logger.info(f"🔍 Filters: {' | '.join(filter_info)} (Search mode: {search_mode})")
     
     logger.info(f"📊 Max models: {max_models}")
     
@@ -68,26 +75,50 @@ async def quick_selective_download(
         """
         params = [model_type]
         
-        # Add filtering
-        if model_type == "LORA" and categories:
-            tag_conditions = []
-            for category in categories:
-                tag_conditions.append("raw_data LIKE ?")
-                params.append(f'%{category}%')
-            
-            if tag_conditions:
-                query += f" AND ({' OR '.join(tag_conditions)})"
+        # Add filtering conditions
+        all_conditions = []
         
-        elif model_type == "Checkpoint" and base_models:
+        # Category filtering (for LORA)
+        if model_type == "LORA" and categories:
+            category_conditions = []
+            for category in categories:
+                # More precise tag matching - look for tag in the tags array
+                # The tags field looks like: 'tags': ['anime', 'style']
+                # We need to match the tag exactly within the array
+                category_conditions.append("""
+                    (raw_data LIKE ? OR raw_data LIKE ? OR raw_data LIKE ? OR raw_data LIKE ?)
+                """)
+                # Different patterns to match tags in array
+                params.append(f"%'tags': ['{category}']%")  # Single tag
+                params.append(f"%'tags': ['{category}',%")  # First tag in array
+                params.append(f"%, '{category}',%")  # Middle tag in array
+                params.append(f"%, '{category}']%")  # Last tag in array
+            
+            if category_conditions:
+                join_operator = " AND " if search_mode == "AND" else " OR "
+                all_conditions.append(f"({join_operator.join(category_conditions)})")
+        
+        # Base model filtering (for both LORA and Checkpoint)
+        if base_models:
             base_conditions = []
             for base_model in base_models:
                 base_conditions.append("raw_data LIKE ?")
                 params.append(f'%{base_model}%')
             
             if base_conditions:
-                query += f" AND ({' OR '.join(base_conditions)})"
+                join_operator = " AND " if search_mode == "AND" else " OR "
+                all_conditions.append(f"({join_operator.join(base_conditions)})")
         
+        # Combine all conditions with AND (different axes are always AND)
+        if all_conditions:
+            query += f" AND {' AND '.join(all_conditions)}"
+        
+        # Exclude already downloaded models
         query += """
+        AND id NOT IN (
+            SELECT model_id FROM downloads 
+            WHERE status = 'completed'
+        )
         ORDER BY created_at DESC
         LIMIT ?
         """
@@ -96,12 +127,13 @@ async def quick_selective_download(
         logger.info(f"📊 Executing query...")
         cursor.execute(query, params)
         models = cursor.fetchall()
-        conn.close()
+        # Don't close connection yet - we need it for duplicate checking
         
         logger.info(f"✅ Found {len(models)} models")
         
         if not models:
             logger.error("❌ No models found matching criteria")
+            conn.close()
             return
         
         # Sort by download count (Most Downloaded first)
@@ -118,6 +150,8 @@ async def quick_selective_download(
         
     except Exception as e:
         logger.error(f"❌ Failed to query database: {e}")
+        if 'conn' in locals():
+            conn.close()
         return
     
     # Display results for dry run
@@ -153,6 +187,7 @@ async def quick_selective_download(
         
         if len(models) > 10:
             logger.info(f"  ... and {len(models) - 10} more models")
+        conn.close()
         return
     
     # Start actual downloads
@@ -174,142 +209,194 @@ async def quick_selective_download(
         
         downloaded_count = 0
         failed_count = 0
+        processed_count = 0  # Actually processed (not skipped) models
         
-        for i, model in enumerate(models, 1):
-            model_id = model[0]
-            model_name = model[1]
+        # Create overall progress bar
+        with tqdm(total=len(models), desc="Downloading models", unit="model") as pbar:
+            for model in models:
+                model_id = model[0]
+                model_name = model[1]
             
-            logger.info(f"📥 [{i}/{len(models)}] Downloading: {model_name}")
+                # Increment processed count (all models in the list should be downloadable)
+                processed_count += 1
+                logger.info(f"📥 [{processed_count}] Downloading: {model_name}")
             
-            try:
-                # Check if already downloaded
-                cursor.execute("SELECT COUNT(*) FROM downloads WHERE model_id = ? AND status = 'completed'", (model_id,))
-                if cursor.fetchone()[0] > 0:
-                    logger.info(f"⏭️  Already downloaded, skipping: {model_name}")
-                    continue
+                try:
+                    async with CivitaiAPIClient(api_key=api_key) as api_client:
+                        # Get model information from CivitAI API
+                        logger.info(f"🌐 Making API call: get_models({{'ids': '{model_id}', 'limit': 1}})")
+                        model_response = await api_client.get_models({'ids': str(model_id), 'limit': 1})
+                        
+                        logger.info(f"📊 API Response: type={type(model_response)}, keys={list(model_response.keys()) if isinstance(model_response, dict) else 'Not dict'}")
+                        
+                        if not model_response.get('items'):
+                            logger.error(f"❌ Model {model_id} not found on CivitAI")
+                            logger.error(f"📊 Full API response: {model_response}")
+                            failed_count += 1
+                            continue
+                        
+                        model_data = model_response['items'][0]
+                        versions = model_data.get('modelVersions', [])
+                        
+                        if not versions:
+                            logger.error(f"❌ No versions found for model {model_id}")
+                            failed_count += 1
+                            continue
+                        
+                        # Use the latest version
+                        latest_version = versions[0]
+                        version_id = latest_version['id']
+                        download_url = latest_version.get('downloadUrl')
+                        
+                        if not download_url:
+                            download_url = f"https://civitai.com/api/download/models/{version_id}"
+                        
+                        # Set up organized folder structure
+                        organizer = DownloadOrganizer(output_dir)
+                        folder_path, category = organizer.determine_folder_structure(model_data)
+                        
+                        # Get base model abbreviation
+                        base_model = latest_version.get('baseModel', 'Unknown')
+                        base_model_abbr = {
+                            'Illustrious': 'IL',
+                            'NoobAI': 'NAI',
+                            'Flux.1 D': 'FLU',
+                            'Flux.1 S': 'FLS',
+                            'Flux.1': 'FL',
+                            'Pony': 'PO',
+                            'SDXL 1.0': 'XL',
+                            'SD 1.5': 'SD',
+                        }.get(base_model, base_model[:3].upper())
+                        
+                        # Create filename: [ID]ModelName_BaseModel.safetensors
+                        model_name_safe = organizer._sanitize_filename(model_name)
+                        # Limit model name length to avoid too long filenames
+                        if len(model_name_safe) > 40:
+                            model_name_safe = model_name_safe[:40]
+                        filename = f"[{model_id}]{model_name_safe}_{base_model_abbr}.safetensors"
+                        
+                        logger.info(f"📦 Version: {latest_version['name']}")
+                        logger.info(f"📄 Filename: {filename}")
+                        
+                        # Create folder if needed
+                        folder_path.mkdir(parents=True, exist_ok=True)
+                        
+                        logger.info(f"📁 Folder: {folder_path}")
+                        
+                        # Perform actual download
+                        result = await download_manager.download_file(
+                            url=download_url,
+                            output_dir=str(folder_path),
+                            filename=filename
+                        )
+                        
+                        logger.info(f"📊 Download result: success={result.success}, file_path={result.file_path}, error={result.error_message}")
+                        
+                        if result.success:
+                            logger.info(f"✅ Download completed: {result.file_path}")
+                            
+                            # Organize downloaded files and create metadata
+                            try:
+                                download_result = {
+                                    'file_path': result.file_path,
+                                    'success': True
+                                }
+                                organization_result = await organizer.organize_model_download(
+                                    model_data, 
+                                    download_result,
+                                    create_info_files=True,
+                                    base_filename=filename
+                                )
+                                logger.info(f"📋 Created metadata files and preview images")
+                            except Exception as e:
+                                logger.warning(f"⚠️  Failed to organize files: {e}")
+                            
+                            # Record download in database
+                            try:
+                                import datetime
+                                download_data = {
+                                    'model_id': model_id,
+                                    'file_id': None,
+                                    'file_name': result.file_path.name if hasattr(result.file_path, 'name') else filename,
+                                    'file_path': str(result.file_path),
+                                    'download_url': download_url,
+                                    'file_size': getattr(result, 'file_size', None),
+                                    'hash_sha256': getattr(result, 'hash_sha256', None),
+                                    'status': 'completed',
+                                    'downloaded_at': datetime.datetime.now().isoformat()
+                                }
+                                
+                                # Insert into database
+                                conn_db = sqlite3.connect(db_path)
+                                cursor_db = conn_db.cursor()
+                                
+                                cursor_db.execute('''
+                                    INSERT OR REPLACE INTO downloads 
+                                    (model_id, file_id, file_name, file_path, download_url, file_size, hash_sha256, status, downloaded_at)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ''', (
+                                    download_data['model_id'],
+                                    download_data['file_id'],
+                                    download_data['file_name'],
+                                    download_data['file_path'],
+                                    download_data['download_url'],
+                                    download_data['file_size'],
+                                    download_data['hash_sha256'],
+                                    download_data['status'],
+                                    download_data['downloaded_at']
+                                ))
+                                
+                                conn_db.commit()
+                                conn_db.close()
+                                
+                                logger.info(f"📝 Recorded download in database: {model_id}")
+                                
+                            except Exception as e:
+                                logger.warning(f"⚠️  Failed to record download in database: {e}")
+                            
+                            downloaded_count += 1
+                        else:
+                            error_msg = result.error_message or "Unknown error"
+                            logger.error(f"❌ Download failed: {error_msg}")
+                            logger.error(f"📊 Download result details: {result}")
+                            failed_count += 1
+                        
+                except Exception as e:
+                    failed_count += 1
+                    logger.error(f"❌ Error downloading {model_name}: {e}")
+                    import traceback
+                    logger.debug(traceback.format_exc())
                 
-                async with CivitaiAPIClient(api_key=api_key) as api_client:
-                    # Get model information from CivitAI API
-                    model_response = await api_client.get_models({'ids': str(model_id), 'limit': 1})
-                    
-                    if not model_response.get('items'):
-                        logger.error(f"❌ Model {model_id} not found on CivitAI")
-                        failed_count += 1
-                        continue
-                    
-                    model_data = model_response['items'][0]
-                    versions = model_data.get('modelVersions', [])
-                    
-                    if not versions:
-                        logger.error(f"❌ No versions found for model {model_id}")
-                        failed_count += 1
-                        continue
-                    
-                    # Use the latest version
-                    latest_version = versions[0]
-                    version_id = latest_version['id']
-                    download_url = latest_version.get('downloadUrl')
-                    
-                    if not download_url:
-                        download_url = f"https://civitai.com/api/download/models/{version_id}"
-                    
-                    # Get filename from primary file
-                    files = latest_version.get('files', [])
-                    primary_file = next((f for f in files if f.get('primary', False)), None)
-                    filename = primary_file['name'] if primary_file else f"model_{model_id}.safetensors"
-                    
-                    logger.info(f"📦 Version: {latest_version['name']}")
-                    logger.info(f"📄 Filename: {filename}")
-                    
-                    # Set up organized folder structure
-                    organizer = DownloadOrganizer(Path(output_dir))
-                    organization_info = await organizer.organize_download(model_data, latest_version)
-                    
-                    logger.info(f"📁 Folder: {organization_info['folder_path']}")
-                    
-                    # Perform actual download
-                    result = await download_manager.download_file(
-                        url=download_url,
-                        output_dir=organization_info['folder_path'],
-                        filename=filename
-                    )
-                    
-                    if result.success:
-                        logger.info(f"✅ Download completed: {result.file_path}")
-                        
-                        # Update metadata with download completion info
-                        try:
-                            organizer.update_download_metadata(
-                                organization_info['metadata_path'],
-                                [result.file_path],
-                                organization_info['preview_paths']
-                            )
-                        except Exception as e:
-                            logger.warning(f"⚠️  Failed to update metadata: {e}")
-                        
-                        # Record download in database
-                        try:
-                            import datetime
-                            download_data = {
-                                'model_id': model_id,
-                                'file_id': None,
-                                'file_name': result.file_path.name if hasattr(result.file_path, 'name') else filename,
-                                'file_path': str(result.file_path),
-                                'download_url': download_url,
-                                'file_size': getattr(result, 'file_size', None),
-                                'hash_sha256': getattr(result, 'hash_sha256', None),
-                                'status': 'completed',
-                                'downloaded_at': datetime.datetime.now().isoformat()
-                            }
-                            
-                            # Insert into database
-                            conn_db = sqlite3.connect(db_path)
-                            cursor_db = conn_db.cursor()
-                            
-                            cursor_db.execute('''
-                                INSERT OR REPLACE INTO downloads 
-                                (model_id, file_id, file_name, file_path, download_url, file_size, hash_sha256, status, downloaded_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', (
-                                download_data['model_id'],
-                                download_data['file_id'],
-                                download_data['file_name'],
-                                download_data['file_path'],
-                                download_data['download_url'],
-                                download_data['file_size'],
-                                download_data['hash_sha256'],
-                                download_data['status'],
-                                download_data['downloaded_at']
-                            ))
-                            
-                            conn_db.commit()
-                            conn_db.close()
-                            
-                            logger.info(f"📝 Recorded download in database: {model_id}")
-                            
-                        except Exception as e:
-                            logger.warning(f"⚠️  Failed to record download in database: {e}")
-                        
-                        downloaded_count += 1
-                    else:
-                        logger.error(f"❌ Download failed: {result.error_message}")
-                        failed_count += 1
-                        
-            except Exception as e:
-                failed_count += 1
-                logger.error(f"❌ Error downloading {model_name}: {e}")
-                import traceback
-                logger.debug(traceback.format_exc())
-            
-            # Add delay between downloads
-            if i < len(models):
-                await asyncio.sleep(delay)
+                # Update progress bar
+                pbar.update(1)
+                pbar.set_postfix(downloaded=downloaded_count, failed=failed_count)
+                
+                # Add delay between downloads (only after actual download attempts)
+                if processed_count > 0:  # Only add delay if we actually processed a model
+                    await asyncio.sleep(delay)
         
         logger.info(f"🎉 Download completed! ✅ {downloaded_count} successful, ❌ {failed_count} failed")
+        
+        # Close download manager
+        await download_manager.close()
+        
+        # Close database connection
+        conn.close()
         
     except ImportError as e:
         logger.error(f"❌ Failed to import download modules: {e}")
         logger.info("💡 Please run from project root or ensure all dependencies are installed")
+        if 'download_manager' in locals():
+            await download_manager.close()
+        if 'conn' in locals():
+            conn.close()
+    except Exception as e:
+        logger.error(f"❌ Unexpected error: {e}")
+        if 'download_manager' in locals():
+            await download_manager.close()
+        if 'conn' in locals():
+            conn.close()
+        raise
 
 
 if __name__ == "__main__":
@@ -322,22 +409,24 @@ if __name__ == "__main__":
                         help="Model type to download")
     parser.add_argument("--categories", nargs='+', 
                         choices=["style", "pose", "concept", "character"],
-                        help="Categories for LORA models")
+                        help="Categories to filter (primarily for LORA models)")
     parser.add_argument("--base-models", nargs='+',
                         choices=["Illustrious", "NoobAI"],
-                        help="Base models for Checkpoint models")
+                        help="Base models to filter (for both LORA and Checkpoint models)")
     parser.add_argument("--max-models", "-m", type=int, default=100,
                         help="Maximum number of models to download (default: 100)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be downloaded without downloading")
     parser.add_argument("--delay", "-d", type=float, default=1.0,
                         help="Delay between downloads in seconds")
+    parser.add_argument("--search-mode", choices=["AND", "OR"], default="AND",
+                        help="Search mode for multiple categories/base-models (default: AND)")
     
     args = parser.parse_args()
     
     # Validate arguments
-    if args.type == "LORA" and not args.categories:
-        parser.error("--categories is required when type is LORA")
+    if args.type == "LORA" and not args.categories and not args.base_models:
+        parser.error("Either --categories or --base-models (or both) is required when type is LORA")
     if args.type == "Checkpoint" and not args.base_models:
         parser.error("--base-models is required when type is Checkpoint")
     
@@ -349,5 +438,6 @@ if __name__ == "__main__":
         base_models=args.base_models,
         max_models=args.max_models,
         dry_run=args.dry_run,
-        delay=args.delay
+        delay=args.delay,
+        search_mode=args.search_mode
     ))

@@ -9,6 +9,7 @@ import asyncio
 import aiohttp
 import hashlib
 import time
+import shutil
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional, Callable, AsyncGenerator
@@ -16,6 +17,7 @@ from enum import Enum
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import tempfile
+from tqdm.asyncio import tqdm
 
 try:
     from ...api.auth import AuthManager
@@ -289,47 +291,71 @@ class DownloadManager:
                 # Open file for writing
                 mode = 'ab' if resume_position > 0 else 'wb'
                 
+                # Create progress bar
+                progress_bar = tqdm(
+                    total=task.total_bytes,
+                    initial=task.downloaded_bytes,
+                    unit='B',
+                    unit_scale=True,
+                    unit_divisor=1024,
+                    desc=f"Downloading {task.file_info.name}",
+                    leave=False
+                )
+                
                 with open(task.temp_path, mode) as f:
                     start_time = time.time()
                     speed_samples = []
                     
-                    async for chunk in response.content.iter_chunked(task.chunk_size):
-                        if task.status == DownloadStatus.CANCELLED:
-                            break
-                        
-                        if task.status == DownloadStatus.PAUSED:
-                            await asyncio.sleep(0.1)
-                            continue
-                        
-                        # Write chunk
-                        f.write(chunk)
-                        task.downloaded_bytes += len(chunk)
-                        
-                        # Calculate speed
-                        current_time = time.time()
-                        elapsed = current_time - start_time
-                        
-                        if elapsed > 0:
-                            current_speed = len(chunk) / elapsed
-                            task.current_speed = current_speed
+                    try:
+                        async for chunk in response.content.iter_chunked(task.chunk_size):
+                            if task.status == DownloadStatus.CANCELLED:
+                                break
                             
-                            # Keep speed samples for average
-                            speed_samples.append(current_speed)
-                            if len(speed_samples) > 10:
-                                speed_samples.pop(0)
+                            if task.status == DownloadStatus.PAUSED:
+                                await asyncio.sleep(0.1)
+                                continue
                             
-                            task.average_speed = sum(speed_samples) / len(speed_samples)
-                        
-                        start_time = current_time
-                        
-                        # Notify progress
-                        self._notify_progress(task)
-                        
-                        # Small delay to prevent overwhelming
-                        await asyncio.sleep(0.001)
+                            # Write chunk
+                            f.write(chunk)
+                            chunk_size = len(chunk)
+                            task.downloaded_bytes += chunk_size
+                            
+                            # Update progress bar
+                            progress_bar.update(chunk_size)
+                            
+                            # Calculate speed
+                            current_time = time.time()
+                            elapsed = current_time - start_time
+                            
+                            if elapsed > 0:
+                                current_speed = chunk_size / elapsed
+                                task.current_speed = current_speed
+                                
+                                # Keep speed samples for average
+                                speed_samples.append(current_speed)
+                                if len(speed_samples) > 10:
+                                    speed_samples.pop(0)
+                                
+                                task.average_speed = sum(speed_samples) / len(speed_samples)
+                                
+                                # Update progress bar speed
+                                progress_bar.set_postfix(speed=f"{current_speed/1024/1024:.2f} MB/s")
+                            
+                            start_time = current_time
+                            
+                            # Notify progress
+                            self._notify_progress(task)
+                            
+                            # Small delay to prevent overwhelming
+                            await asyncio.sleep(0.001)
+                    finally:
+                        progress_bar.close()
             
             # Download completed
             if task.status != DownloadStatus.CANCELLED:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"🏁 Download content completed, starting finalization for task {task.id}")
                 await self._finalize_download(task)
             
         except Exception as e:
@@ -347,31 +373,60 @@ class DownloadManager:
         Args:
             task: Download task
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"🔧 _finalize_download() called for task {task.id}")
+        
         try:
             # Verify file integrity if hash provided
+            logger.info(f"🔍 Checking integrity verification requirement...")
             if task.verify_integrity and task.file_info.hash_sha256:
+                logger.info(f"🔍 Starting integrity verification...")
                 if not await self._verify_file_integrity(task):
                     raise Exception("File integrity verification failed")
+                logger.info(f"✅ Integrity verification passed")
+            else:
+                logger.info(f"⏭️  Skipping integrity verification (no hash provided)")
             
             # Move from temp to final location
-            if task.output_path.exists():
-                # Handle duplicate files
-                task.output_path = self._generate_unique_path(task.output_path)
+            logger.info(f"📁 Moving file from temp to final location...")
+            logger.info(f"   From: {task.temp_path}")
+            logger.info(f"   To: {task.output_path}")
             
-            task.temp_path.rename(task.output_path)
+            if task.output_path.exists():
+                logger.info(f"⚠️  Target file already exists, generating unique path...")
+                task.output_path = self._generate_unique_path(task.output_path)
+                logger.info(f"   New path: {task.output_path}")
+            
+            # Check if temp file exists
+            if not task.temp_path.exists():
+                raise Exception(f"Temp file does not exist: {task.temp_path}")
+            
+            logger.info(f"📦 Temp file size: {task.temp_path.stat().st_size} bytes")
+            
+            # Use shutil.move for cross-device compatibility
+            logger.info(f"🚚 Moving file...")
+            shutil.move(str(task.temp_path), str(task.output_path))
+            logger.info(f"✅ File moved successfully")
             
             # Update task status
+            logger.info(f"📊 Updating task status to COMPLETED...")
             task.status = DownloadStatus.COMPLETED
             task.end_time = time.time()
+            logger.info(f"✅ Task status updated")
             
             # Update statistics
+            logger.info(f"📊 Updating statistics...")
             with self._lock:
                 self.stats['successful_downloads'] += 1
                 self.stats['total_bytes_downloaded'] += task.downloaded_bytes
                 self.completed_tasks.append(task.id)
+            logger.info(f"✅ Statistics updated")
             
             # Notify completion
+            logger.info(f"📢 Notifying progress...")
             self._notify_progress(task)
+            logger.info(f"✅ Finalization completed successfully")
             
         except Exception as e:
             await self._handle_download_error(task, f"Finalization failed: {e}")
@@ -611,6 +666,14 @@ class DownloadManager:
         Returns:
             DownloadResult with success status and file path
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"🔄 DownloadManager.download_file() called")
+        logger.info(f"   URL: {url}")
+        logger.info(f"   Output dir: {output_dir}")
+        logger.info(f"   Filename: {filename}")
+        
         try:
             # Create FileInfo from URL
             file_info = FileInfo(
@@ -620,23 +683,58 @@ class DownloadManager:
                 size=0  # Will be determined during download
             )
             
+            logger.info(f"📋 Created FileInfo: {file_info}")
+            
             # Set output path
             if output_dir:
                 output_path = Path(output_dir) / file_info.name
             else:
                 output_path = self.default_output_dir / file_info.name
             
+            logger.info(f"📁 Output path: {output_path}")
+            
             # Create and start download task
+            logger.info(f"🛠️  Creating download task...")
             task_id = self.create_download_task(file_info, output_path)
-            await self.start_download(task_id)
+            logger.info(f"✅ Created task: {task_id}")
+            
+            logger.info(f"▶️  Starting download...")
+            start_result = await self.start_download(task_id)
+            logger.info(f"📊 Start result: {start_result}")
             
             # Process the download queue
+            logger.info(f"⚙️  Processing download queue...")
             await self.process_download_queue()
+            logger.info(f"✅ Queue processing completed")
+            
+            # Wait for task to complete (handle race condition)
+            logger.info(f"⏳ Waiting for task to complete...")
+            max_wait_time = 30  # 30 seconds max wait
+            wait_time = 0
+            while wait_time < max_wait_time:
+                task = self.get_task_status(task_id)
+                if task and task.status in [DownloadStatus.COMPLETED, DownloadStatus.FAILED, DownloadStatus.CANCELLED]:
+                    logger.info(f"✅ Task completed with status: {task.status}")
+                    break
+                await asyncio.sleep(0.1)
+                wait_time += 0.1
+            
+            if wait_time >= max_wait_time:
+                logger.warning(f"⚠️  Timeout waiting for task completion")
             
             # Get final task status
+            logger.info(f"📊 Getting final task status...")
             task = self.get_task_status(task_id)
             
+            if task:
+                logger.info(f"📊 Task status: {task.status}")
+                logger.info(f"📊 Task error: {task.error_message}")
+                logger.info(f"📊 Task progress: {task.downloaded_bytes}/{task.total_bytes}")
+            else:
+                logger.error(f"❌ No task found for ID: {task_id}")
+            
             if task and task.status == DownloadStatus.COMPLETED:
+                logger.info(f"✅ Download completed successfully")
                 return DownloadResult(
                     success=True,
                     file_path=output_path,
@@ -644,6 +742,7 @@ class DownloadManager:
                 )
             else:
                 error_msg = task.error_message if task else "Download failed"
+                logger.error(f"❌ Download failed: {error_msg}")
                 return DownloadResult(
                     success=False,
                     error_message=error_msg,
