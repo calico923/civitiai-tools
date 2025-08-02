@@ -139,8 +139,9 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
             if not output_format:
                 output_format = cli_context.config_manager.get('reports.default_format', 'json')
             
-            # Import enums for categories
-            from ..core.search.advanced_search import AdvancedSearchParams, NSFWFilter
+            # Import enums for categories and types
+            from ..core.search.advanced_search import AdvancedSearchParams, NSFWFilter, ModelCategory, SortOption
+            from ..api.params import ModelType
             
             # Convert categories to ModelCategory enums
             category_enums = []
@@ -150,6 +151,26 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                         category_enums.append(ModelCategory(cat.lower()))
                     except ValueError:
                         click.echo(f"Warning: Unknown category '{cat}'", err=True)
+            
+            # Convert types to proper case
+            model_types_list = []
+            if types:
+                # Create a mapping for case-insensitive matching
+                type_mapping = {t.name.upper(): t.value for t in ModelType}
+                
+                for type_str in types:
+                    # Try to find the correct type name
+                    upper_type = type_str.upper()
+                    if upper_type in type_mapping:
+                        model_types_list.append(type_mapping[upper_type])
+                    else:
+                        # Special cases for common variations
+                        if upper_type == "LORA":
+                            model_types_list.append(ModelType.LORA.value)
+                        elif upper_type == "CHECKPOINT":
+                            model_types_list.append(ModelType.CHECKPOINT.value)
+                        else:
+                            click.echo(f"Warning: Unknown model type '{type_str}'. Valid types: {', '.join([t.value for t in ModelType])}", err=True)
             
             # Convert sort to SortOption enum
             sort_option = None
@@ -163,7 +184,7 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
             tags_list = list(tags) if tags else []
             search_params = AdvancedSearchParams(
                 query=query if query else None,
-                model_types=list(types) if types else [],
+                model_types=model_types_list,
                 categories=category_enums,
                 tags=tags_list,
                 base_model=base_model,
@@ -261,11 +282,20 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                 click.echo(f"Final results: {len(results)} items")
             
             # Store models in database
+            logger.info(f"Storing {len(results)} models in database...")
+            stored_count = 0
+            failed_count = 0
             for model in results:
                 try:
-                    cli_context.db_manager.store_model(model)
+                    if cli_context.db_manager.store_model(model):
+                        stored_count += 1
+                    else:
+                        failed_count += 1
                 except Exception as e:
+                    failed_count += 1
                     logger.warning(f"Failed to store model {model.get('id', 'unknown')} in database: {e}")
+            
+            logger.info(f"Database storage complete: {stored_count} stored, {failed_count} failed")
             
             # Record search history
             try:
@@ -327,10 +357,10 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                     model_type = result.get('type', 'Unknown')
                     
                     # Base model from first version
-                    base_model = 'Unknown'
+                    model_base_model = 'Unknown'
                     model_versions = result.get('modelVersions', [])
                     if model_versions and len(model_versions) > 0:
-                        base_model = model_versions[0].get('baseModel', 'Unknown')
+                        model_base_model = model_versions[0].get('baseModel', 'Unknown')
                     
                     # Category classification (use pre-processed data if available)
                     if '_primary_category' in result:
@@ -397,7 +427,7 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                     output_buffer = io.StringIO()
                     csv_writer = csv.writer(output_buffer)
                     csv_writer.writerow([
-                        model_id, name, model_type, base_model, primary_category_str, tags_str, trained_words_str,
+                        model_id, name, model_type, model_base_model, primary_category_str, tags_str, trained_words_str,
                         downloads, favorites, nsfw_status, commercial_use, creator_name, model_url, download_url
                     ])
                     csv_line = output_buffer.getvalue().strip()
@@ -435,10 +465,10 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                             model_type = result.get('type', 'Unknown')
                             
                             # Base model from first version
-                            base_model = 'Unknown'
+                            model_base_model = 'Unknown'
                             model_versions = result.get('modelVersions', [])
                             if model_versions and len(model_versions) > 0:
-                                base_model = model_versions[0].get('baseModel', 'Unknown')
+                                model_base_model = model_versions[0].get('baseModel', 'Unknown')
                             
                             # Category classification (use pre-processed data if available)
                             if '_primary_category' in result:
@@ -503,7 +533,7 @@ def search_command(query, nsfw, types, sort, limit, output, output_format, categ
                             
                             # Write row
                             csv_writer.writerow([
-                                model_id, name, model_type, base_model, primary_category_str, tags_str, trained_words_str,
+                                model_id, name, model_type, model_base_model, primary_category_str, tags_str, trained_words_str,
                                 downloads, favorites, nsfw_status, commercial_use, creator_name, model_url, download_url
                             ])
                 else:

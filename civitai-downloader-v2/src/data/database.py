@@ -79,6 +79,10 @@ class DatabaseManager:
             True if stored successfully
         """
         try:
+            model_id = model_data.get('id')
+            model_name = model_data.get('name')
+            logger.debug(f"Storing model {model_id}: {model_name}")
+            
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
@@ -109,6 +113,7 @@ class DatabaseManager:
                 ))
                 
                 conn.commit()
+                logger.debug(f"Successfully stored model {model_id} in database")
                 return True
                 
         except Exception as e:
@@ -126,13 +131,16 @@ class DatabaseManager:
             Model data or None if not found
         """
         try:
+            logger.debug(f"Retrieving model {model_id} from database")
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT * FROM models WHERE id = ?", (model_id,))
                 row = cursor.fetchone()
                 
                 if row:
+                    logger.debug(f"Found model {model_id} in database")
                     return dict(row)
+                logger.debug(f"Model {model_id} not found in database")
                 return None
                 
         except Exception as e:
@@ -150,6 +158,10 @@ class DatabaseManager:
             True if recorded successfully
         """
         try:
+            model_id = download_data.get('model_id')
+            file_name = download_data.get('file_name')
+            logger.debug(f"Recording download for model {model_id}: {file_name}")
+            
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
@@ -171,6 +183,7 @@ class DatabaseManager:
                 ))
                 
                 conn.commit()
+                logger.debug(f"Successfully recorded download for model {model_id}")
                 return True
                 
         except Exception as e:
@@ -189,6 +202,7 @@ class DatabaseManager:
             True if already downloaded
         """
         try:
+            logger.debug(f"Checking download status for model {model_id}, file {file_id}")
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
@@ -204,7 +218,9 @@ class DatabaseManager:
                     """, (model_id,))
                 
                 count = cursor.fetchone()[0]
-                return count > 0
+                is_downloaded = count > 0
+                logger.debug(f"Model {model_id} download status: {'downloaded' if is_downloaded else 'not downloaded'}")
+                return is_downloaded
                 
         except Exception as e:
             logger.error(f"Failed to check download status: {e}")

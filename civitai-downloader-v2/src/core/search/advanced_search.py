@@ -46,23 +46,22 @@ class FileFormat(Enum):
 
 
 class ModelCategory(Enum):
-    """Model categories aligned with SQL migration."""
-    CHARACTER = "character"
-    STYLE = "style"
-    CONCEPT = "concept"
-    CLOTHING = "clothing"
-    BACKGROUND = "background"
-    TOOL = "tool"
-    BUILDING = "building"
-    VEHICLE = "vehicle"
-    OBJECT = "object"
-    ANIMAL = "animal"
-    BODY = "body"
-    OUTFIT = "outfit"
-    BASE = "base"
+    """Model categories from CivitAI API (15 categories)."""
     ACTION = "action"
-    WORKFLOW = "workflow"
-    WILDCARDS = "wildcards"
+    ANIMAL = "animal"
+    ASSETS = "assets"
+    BACKGROUND = "background"
+    BASE_MODEL = "base model"
+    BUILDINGS = "buildings"
+    CELEBRITY = "celebrity"
+    CHARACTER = "character"
+    CLOTHING = "clothing"
+    CONCEPT = "concept"
+    OBJECTS = "objects"
+    POSES = "poses"
+    STYLE = "style"
+    TOOL = "tool"
+    VEHICLE = "vehicle"
 
 
 class SortOption(Enum):
